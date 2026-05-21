@@ -4,11 +4,13 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func TestService_StoreAndGetL1(t *testing.T) {
-	s := New(10)
+	dir := t.TempDir()
+	s := New(10, dir)
 	ctx := context.Background()
 
 	entry, err := s.Store(ctx, "The user prefers Python for data analysis", "preferences")
@@ -29,7 +31,8 @@ func TestService_StoreAndGetL1(t *testing.T) {
 }
 
 func TestService_Search(t *testing.T) {
-	s := New(10)
+	dir := t.TempDir()
+	s := New(10, dir)
 	ctx := context.Background()
 
 	s.Store(ctx, "Python is a programming language", "lang")
@@ -45,7 +48,8 @@ func TestService_Search(t *testing.T) {
 }
 
 func TestService_Archive(t *testing.T) {
-	s := New(10)
+	dir := t.TempDir()
+	s := New(10, dir)
 	ctx := context.Background()
 
 	s.Store(ctx, "Some old fact", "test")
@@ -64,7 +68,8 @@ func TestService_Archive(t *testing.T) {
 }
 
 func TestService_MaxL1(t *testing.T) {
-	s := New(3)
+	dir := t.TempDir()
+	s := New(3, dir)
 	ctx := context.Background()
 
 	for i := 0; i < 5; i++ {
@@ -145,7 +150,7 @@ func TestContainsIgnoreCase(t *testing.T) {
 }
 
 func TestStoreString(t *testing.T) {
-	s := New(10)
+	s := New(10, "")
 	ctx := context.Background()
 
 	id, err := s.StoreString(ctx, "test memory", "test")
@@ -154,5 +159,52 @@ func TestStoreString(t *testing.T) {
 	}
 	if id == "" {
 		t.Error("StoreString returned empty ID")
+	}
+}
+
+func TestService_Persistence(t *testing.T) {
+	dir := t.TempDir()
+	s := New(10, dir)
+	ctx := context.Background()
+
+	s.Store(ctx, "user prefers Go for backend", "preference")
+	s.Store(ctx, "project uses ADK framework", "tech")
+
+	s2 := New(10, dir)
+	if err := s2.LoadFromDisk(); err != nil {
+		t.Fatalf("LoadFromDisk: %v", err)
+	}
+
+	results, _ := s2.Search(ctx, "Go")
+	if len(results) != 1 {
+		t.Errorf("Search('Go') after reload = %d results, want 1", len(results))
+	}
+	if results[0].Content != "user prefers Go for backend" {
+		t.Errorf("Content = %q, want %q", results[0].Content, "user prefers Go for backend")
+	}
+
+	idx := s2.GetL1Index()
+	if len(idx) != 2 {
+		t.Errorf("L1 index after reload = %d entries, want 2", len(idx))
+	}
+}
+
+func TestService_GetL1Content(t *testing.T) {
+	dir := t.TempDir()
+	s := New(5, dir)
+	ctx := context.Background()
+
+	s.Store(ctx, "user prefers Python for ML tasks", "preference")
+	s.Store(ctx, "deploy target is Kubernetes", "ops")
+
+	content := s.GetL1Content()
+	if !strings.Contains(content, "Python") {
+		t.Errorf("L1 content should contain 'Python', got:\n%s", content)
+	}
+	if !strings.Contains(content, "Kubernetes") {
+		t.Errorf("L1 content should contain 'Kubernetes', got:\n%s", content)
+	}
+	if !strings.Contains(content, "Memory Index") {
+		t.Errorf("L1 content should contain header, got:\n%s", content)
 	}
 }
