@@ -14,6 +14,7 @@ import (
 	"google.golang.org/adk/session"
 	"google.golang.org/genai"
 
+	"github.com/ai4next/superman/internal/agent/tools"
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/tui/components"
 )
@@ -209,6 +210,18 @@ func (m *Model) processInput() (tea.Model, tea.Cmd) {
 	prompt := strings.TrimSpace(m.input)
 	m.input = ""
 	m.cursorPos = 0
+
+	// Inject working memory (checkpoints) into the prompt
+	cps := tools.GetCheckpoints()
+	if len(cps) > 0 {
+		var wm strings.Builder
+		wm.WriteString("\n\n<working_memory>\n<key_info>\n")
+		for k, v := range cps {
+			wm.WriteString(fmt.Sprintf("  %s: %s\n", k, v))
+		}
+		wm.WriteString("</key_info>\n</working_memory>\n")
+		prompt += wm.String()
+	}
 
 	m.messages = append(m.messages, components.Message{
 		Role:    "user",
