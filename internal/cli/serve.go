@@ -13,11 +13,34 @@ import (
 	adksession "google.golang.org/adk/session"
 
 	"github.com/ai4next/superman/internal/agent"
+	"github.com/ai4next/superman/internal/agent/tools"
 	"github.com/ai4next/superman/internal/memory"
 	"github.com/ai4next/superman/internal/model"
 	"github.com/ai4next/superman/internal/plugin"
 	"github.com/ai4next/superman/internal/session"
 )
+
+// memorySearchAdapter wraps memory.Service to implement tools.MemorySearcher.
+type memorySearchAdapter struct {
+	svc *memory.Service
+}
+
+func (a *memorySearchAdapter) Search(ctx context.Context, query string) ([]tools.SearchResult, error) {
+	entries, err := a.svc.Search(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]tools.SearchResult, len(entries))
+	for i, e := range entries {
+		results[i] = tools.SearchResult{
+			ID:      e.ID,
+			Summary: e.Summary,
+			Layer:   e.Layer,
+			Content: e.Content,
+		}
+	}
+	return results, nil
+}
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
@@ -29,8 +52,11 @@ var serveCmd = &cobra.Command{
 		// Model
 		llm := model.MustNew(ctx, cfg.Model)
 
-		// Memory service (L0-L3)
-		memSvc := memory.New(cfg.Memory.L1.MaxEntries)
+		// Memory service (L1-L3) with file persistence
+		memSvc := memory.New(cfg.Memory.L1.MaxEntries, cfg.Memory.L2.Dir)
+		if err := memSvc.LoadFromDisk(); err != nil {
+			log.Printf("[cli] memory load warning: %v", err)
+		}
 
 		// L0 SOP store — load templates and inject into agent prompt
 		var sopContent string
@@ -51,7 +77,7 @@ var serveCmd = &cobra.Command{
 
 		// Periodic archiving (L2 → L3)
 		go func() {
-			ticker := time.NewTicker(time.Hour)
+			ticker := time.NewTicker(cfg.Memory.L3.ArchiveInterval.AsDuration())
 			defer ticker.Stop()
 			for {
 				select {
@@ -62,6 +88,23 @@ var serveCmd = &cobra.Command{
 				}
 			}
 		}()
+
+		// L4 archiver: compress old session files
+		if cfg.Memory.L4.Enabled {
+			go func() {
+				ttl := cfg.Memory.L4.SessionTTL.AsDuration()
+				ticker := time.NewTicker(cfg.Memory.L4.ArchiveInterval.AsDuration())
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ticker.C:
+						if archived, _ := memory.ArchiveSessions(ctx, cfg.Session.HistoryPath, cfg.Memory.L2.Dir, ttl); archived > 0 {
+							log.Printf("[memory] L4 archived %d sessions", archived)
+						}
+					}
+				}
+			}()
+		}
 
 		// Session manager with JSONL persistence
 		sessMgr := session.New(adksession.InMemoryService(), cfg.Session.HistoryPath, cfg.Session.MaxTurns)
@@ -82,8 +125,11 @@ var serveCmd = &cobra.Command{
 			}
 		}
 
-		// Agent with memory service and SOP templates
-		a, err := agent.New(llm, cfg, memSvc, sopContent)
+		// Create memory search adapter
+		searchAdapter := &memorySearchAdapter{svc: memSvc}
+
+		// Agent with memory service, search, and SOP templates
+		a, err := agent.New(llm, cfg, memSvc, searchAdapter, sopContent)
 		if err != nil {
 			return fmt.Errorf("create agent: %w", err)
 		}

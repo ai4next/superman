@@ -208,3 +208,45 @@ func TestService_GetL1Content(t *testing.T) {
 		t.Errorf("L1 content should contain header, got:\n%s", content)
 	}
 }
+
+func TestArchiveSessions(t *testing.T) {
+	sessionDir := t.TempDir()
+	memDir := t.TempDir()
+	ctx := context.Background()
+
+	sessionID := "test-session-123"
+	sessionPath := filepath.Join(sessionDir, sessionID+".jsonl")
+	sessionContent := `{"turn":1,"timestamp":"2026-05-19T10:00:00Z","user_message":"hello","agent_response":"hi","tool_calls":0}
+{"turn":2,"timestamp":"2026-05-19T10:01:00Z","user_message":"what is Go?","agent_response":"Go is a language","tool_calls":1}
+`
+	if err := os.WriteFile(sessionPath, []byte(sessionContent), 0644); err != nil {
+		t.Fatalf("write session file: %v", err)
+	}
+
+	count, err := ArchiveSessions(ctx, sessionDir, memDir, 0)
+	if err != nil {
+		t.Fatalf("ArchiveSessions: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("archived %d sessions, want 1", count)
+	}
+
+	l4Dir := filepath.Join(memDir, "l4_archive")
+	entries, err := os.ReadDir(l4Dir)
+	if err != nil {
+		t.Fatalf("read l4_archive: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("l4_archive has %d files, want 1", len(entries))
+	}
+
+	if _, err := os.Stat(sessionPath); !os.IsNotExist(err) {
+		t.Errorf("original session file should be deleted, got: %v", err)
+	}
+
+	archivePath := filepath.Join(l4Dir, entries[0].Name())
+	data, _ := os.ReadFile(archivePath)
+	if !strings.Contains(string(data), "hello") {
+		t.Errorf("archive should contain user message context")
+	}
+}
