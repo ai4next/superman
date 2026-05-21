@@ -95,9 +95,11 @@ type LongTermMemoryConfig struct {
 
 // MemoryConfig configures the memory subsystem.
 type MemoryConfig struct {
-	L0 L0Config `mapstructure:"l0"`
-	L1 L1Config `mapstructure:"l1"`
-	L3 L3Config `mapstructure:"l3"`
+	L0 L0Config  `mapstructure:"l0"`
+	L1 L1Config  `mapstructure:"l1"`
+	L2 L2Config  `mapstructure:"l2"`
+	L3 L3Config  `mapstructure:"l3"`
+	L4 L4Config  `mapstructure:"l4"`
 }
 
 // L0Config is for the Standard Operating Procedures memory level.
@@ -110,9 +112,21 @@ type L1Config struct {
 	MaxEntries int `mapstructure:"max_entries"`
 }
 
+// L2Config is for persistent working memory storage.
+type L2Config struct {
+	Dir string `mapstructure:"dir"`
+}
+
 // L3Config is for long-term archived memory.
 type L3Config struct {
 	ArchiveInterval Duration `mapstructure:"archive_interval"`
+}
+
+// L4Config is for historical session archiving.
+type L4Config struct {
+	Enabled        bool     `mapstructure:"enabled"`
+	ArchiveInterval Duration `mapstructure:"archive_interval"`
+	SessionTTL     Duration `mapstructure:"session_ttl"`
 }
 
 // PluginConfig configures an individual plugin.
