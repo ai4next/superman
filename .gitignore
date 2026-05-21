@@ -40,6 +40,9 @@ docs/
 .claude
 .codex
 
+# Data
+/data
+
 # Exe
 /superman
 /superman.exe
