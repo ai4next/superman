@@ -1,0 +1,68 @@
+model:
+  provider: openai
+  name: gpt-4o
+  base_url: https://api.openai.com/v1
+  api_key: ${OPENAI_API_KEY}
+
+server:
+  addr: 127.0.0.1:8080
+
+tools:
+  code_run:
+    enabled: true
+    timeout: 30s
+    allowed_languages: [python, bash, sh]
+    workspace: ./workspace
+  file_read:
+    enabled: true
+    max_size: 10485760
+    allowed_paths: ["./", "/tmp/"]
+  file_write:
+    enabled: true
+    max_size: 10485760
+    allowed_paths: ["./workspace/", "/tmp/"]
+  file_patch:
+    enabled: true
+    allowed_paths: ["./", "/tmp/"]
+  web_scan:
+    enabled: true
+    timeout: 15s
+  web_execute:
+    enabled: false
+  ask_user:
+    enabled: true
+  checkpoint:
+    enabled: true
+  long_term_memory:
+    enabled: true
+
+memory:
+  l0:
+    sop_dir: ./internal/memory/templates
+  l1:
+    max_entries: 50
+  l3:
+    archive_interval: 24h
+
+plugins:
+  - name: memory_sync
+    enabled: true
+  - name: token_tracker
+    enabled: true
+  - name: tool_logger
+    enabled: true
+  - name: session_reaper
+    enabled: true
+    config:
+      max_turns: 100
+      max_age: 2h
+
+session:
+  max_turns: 75
+  history_path: ./data/sessions
+
+reflect:
+  autonomous:
+    idle_timeout: 30m
+  scheduler:
+    tasks_dir: ./config/tasks

@@ -32,3 +32,16 @@ Thumbs.db
 # Environment
 .env
 .env.*
+
+# Docs
+docs/
+
+# Coding Agent
+.claude
+.codex
+
+# Exe
+/superman
+/superman.exe
+/sm
+/sm.exe

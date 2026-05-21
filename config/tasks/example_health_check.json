@@ -1,0 +1,5 @@
+{
+  "name": "system-health",
+  "prompt": "Check the current working directory for any issues, review recent changes, and report a brief health summary.",
+  "enabled": false
+}
