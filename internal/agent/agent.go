@@ -26,31 +26,61 @@ import (
 //go:embed prompt/system.txt
 var systemPrompt string
 
-// New creates a new Superman agent with all registered tools, optional SOP rules,
-// and L1 memory index injected into the system prompt.
-func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, memSearcher tools.MemorySearcher, sopContent string, expertRegistry *expert.Registry, delegateRunner tools.DelegateRunner) (adkagent.Agent, []*plugin.Plugin, error) {
+// BuildConfig describes one concrete agent instance. Superman and experts use
+// this same builder so their runtime wiring stays consistent.
+type BuildConfig struct {
+	Name              string
+	Description       string
+	Instruction       string
+	MemoryService     *memory.Service
+	MemorySearcher    tools.MemorySearcher
+	SOPContent        string
+	ExpertRegistry    *expert.Registry
+	DelegateRunner    tools.DelegateRunner
+	EnableExpertTools bool
+}
+
+// NewFromConfig creates an agent with the shared Superman runtime wiring:
+// configured tools, optional isolated memory, shared hooks, and shared skills.
+func NewFromConfig(llm model.LLM, cfg *config.Config, build BuildConfig) (adkagent.Agent, []*plugin.Plugin, error) {
+	if build.Name == "" {
+		build.Name = "superman"
+	}
+	if build.Description == "" {
+		build.Description = "Superman - general-purpose autonomous AI assistant"
+	}
+	if build.Instruction == "" {
+		build.Instruction = systemPrompt
+	}
+
+	expertRegistry := build.ExpertRegistry
+	delegateRunner := build.DelegateRunner
+	if !build.EnableExpertTools {
+		expertRegistry = nil
+		delegateRunner = nil
+	}
+
 	deps := tools.Dependencies{
 		Config:         cfg,
 		Workspace:      cfg.Tools.CodeRun.Workspace,
-		MemoryService:  memSvc,
-		MemorySearcher: memSearcher,
+		MemoryService:  build.MemoryService,
+		MemorySearcher: build.MemorySearcher,
 		ExpertManager:  expertRegistry,
 		DelegateRunner: delegateRunner,
+		ExpertTools:    build.EnableExpertTools,
 	}
 
 	toolList := tools.RegisterAll(deps)
 
-	instruction := systemPrompt
-
-	// Inject L0 SOP rules into the system prompt
-	if sopContent != "" {
-		instruction += "\n\n## SOP Rules\n" + sopContent
+	instruction := build.Instruction
+	if build.SOPContent != "" {
+		instruction += "\n\n## SOP Rules\n" + build.SOPContent
 	}
 
 	var beforeModelCallbacks []llmagent.BeforeModelCallback
-	if memSvc != nil {
+	if build.MemoryService != nil {
 		beforeModelCallbacks = append(beforeModelCallbacks, func(ctx adkagent.CallbackContext, req *model.LLMRequest) (*model.LLMResponse, error) {
-			l1Content := memSvc.GetL1Content()
+			l1Content := build.MemoryService.GetL1Content()
 			if l1Content == "" {
 				return nil, nil
 			}
@@ -70,7 +100,6 @@ func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, memSearcher 
 		})
 	}
 
-	// Hook manager plugin
 	var extraPlugins []*plugin.Plugin
 	hookMgr, err := hook.NewManager(filepath.Join(cfg.Dir, "hooks"))
 	if err != nil {
@@ -79,7 +108,6 @@ func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, memSearcher 
 		extraPlugins = append(extraPlugins, hookMgr.Plugin())
 	}
 
-	// Create SkillToolset from cfg.Dir/skills directory
 	var agentToolsets []tool.Toolset
 	skillsDir := filepath.Join(cfg.Dir, "skills")
 	skillFS := os.DirFS(skillsDir)
@@ -93,9 +121,9 @@ func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, memSearcher 
 	}
 
 	a, err := llmagent.New(llmagent.Config{
-		Name:                 "superman",
+		Name:                 build.Name,
 		Model:                llm,
-		Description:          "Superman - general-purpose autonomous AI assistant",
+		Description:          build.Description,
 		Instruction:          instruction,
 		Tools:                toolList,
 		Toolsets:             agentToolsets,
@@ -105,12 +133,28 @@ func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, memSearcher 
 		return nil, nil, err
 	}
 
-	log.Printf("[agent] created superman agent with %d tools", len(toolList))
+	log.Printf("[agent] created %s agent with %d tools", build.Name, len(toolList))
 
 	checkpoints := tools.GetCheckpoints()
 	log.Printf("[agent] loaded %d checkpoints", len(checkpoints))
 
 	return a, extraPlugins, nil
+}
+
+// New creates a new Superman agent with all registered tools, optional SOP rules,
+// and L1 memory index injected into the system prompt.
+func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, memSearcher tools.MemorySearcher, sopContent string, expertRegistry *expert.Registry, delegateRunner tools.DelegateRunner) (adkagent.Agent, []*plugin.Plugin, error) {
+	return NewFromConfig(llm, cfg, BuildConfig{
+		Name:              "superman",
+		Description:       "Superman - general-purpose autonomous AI assistant",
+		Instruction:       systemPrompt,
+		MemoryService:     memSvc,
+		MemorySearcher:    memSearcher,
+		SOPContent:        sopContent,
+		ExpertRegistry:    expertRegistry,
+		DelegateRunner:    delegateRunner,
+		EnableExpertTools: true,
+	})
 }
 
 // NewWithoutMemory creates an agent without a memory service (for simple CLI usage).

@@ -62,14 +62,15 @@ func RunServe(cmd *cobra.Command, args []string) error {
 	llm := model.MustNew(ctx, cfg.Model)
 
 	// Memory service (L1-L3) with file persistence
-	memSvc := memory.New(cfg.Memory.L1.MaxEntries, filepath.Join(cfg.Dir, "memory"))
+	supermanMemoryDir := filepath.Join(cfg.Dir, "superman", "memory")
+	memSvc := memory.New(cfg.Memory.L1.MaxEntries, supermanMemoryDir)
 	if err := memSvc.LoadFromDisk(); err != nil {
 		log.Printf("[cli] memory load warning: %v", err)
 	}
 
 	// L0 SOP store — load templates and inject into agent prompt
 	var sopContent string
-	l0, err := memory.NewL0Store(filepath.Join(cfg.Dir, "memory", "l0"))
+	l0, err := memory.NewL0Store(filepath.Join(supermanMemoryDir, "l0"))
 	if err != nil {
 		log.Printf("[cli] L0Store warning: %v", err)
 	}
@@ -99,7 +100,7 @@ func RunServe(cmd *cobra.Command, args []string) error {
 		ticker := time.NewTicker(cfg.Memory.Evolution.Interval.AsDuration())
 		defer ticker.Stop()
 		for range ticker.C {
-			candidates, err := memSvc.Evolve(ctx, filepath.Join(cfg.Dir, "memory", "candidates"))
+			candidates, err := memSvc.Evolve(ctx, filepath.Join(supermanMemoryDir, "candidates"))
 			if err != nil {
 				log.Printf("[memory] evolution warning: %v", err)
 				continue
@@ -116,7 +117,7 @@ func RunServe(cmd *cobra.Command, args []string) error {
 		ticker := time.NewTicker(cfg.Memory.L4.ArchiveInterval.AsDuration())
 		defer ticker.Stop()
 		for range ticker.C {
-			if archived, _ := memory.ArchiveSessions(ctx, cfg.Session.HistoryPath, filepath.Join(cfg.Dir, "memory"), ttl); archived > 0 {
+			if archived, _ := memory.ArchiveSessions(ctx, cfg.Session.HistoryPath, supermanMemoryDir, ttl); archived > 0 {
 				log.Printf("[memory] L4 archived %d sessions", archived)
 			}
 		}
@@ -155,7 +156,7 @@ func RunServe(cmd *cobra.Command, args []string) error {
 	// Delegate runner for expert sub-agent execution (Phase 2)
 	var delegateRunner tools.DelegateRunner
 	if cfg.Expert.Enabled && expertRegistry != nil {
-		delegateRunner = expert.NewDelegateService(cfg, llm, expertRegistry)
+		delegateRunner = newDelegateService(cfg, llm, expertRegistry)
 	}
 
 	// Session manager with JSONL persistence

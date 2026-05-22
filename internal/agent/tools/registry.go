@@ -49,6 +49,7 @@ type Dependencies struct {
 	MemorySearcher MemorySearcher
 	ExpertManager  ExpertManager `json:"-"`
 	DelegateRunner DelegateRunner
+	ExpertTools    bool
 }
 
 // RegisterAll creates and returns all enabled tools.
@@ -85,11 +86,11 @@ func RegisterAll(deps Dependencies) []tool.Tool {
 	if deps.Config.Tools.LongTermMemory.Enabled {
 		tools = append(tools, newSearchMemoryTool(deps))
 	}
-	if deps.ExpertManager != nil && deps.Config.Expert.Enabled {
+	if deps.ExpertTools && deps.ExpertManager != nil && deps.Config.Expert.Enabled {
 		tools = append(tools, newQueryExpertsTool(deps.ExpertManager))
 		tools = append(tools, newCreateExpertTool(deps.ExpertManager))
 	}
-	if deps.DelegateRunner != nil {
+	if deps.ExpertTools && deps.DelegateRunner != nil {
 		tools = append(tools, newDelegateTool(deps.DelegateRunner))
 	}
 

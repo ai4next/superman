@@ -23,11 +23,16 @@ func ensureDirs(cfg *config.Config) error {
 		cfg.Dir,
 		filepath.Join(cfg.Dir, "skills"),
 		filepath.Join(cfg.Dir, "hooks"),
-		filepath.Join(cfg.Dir, "data", "experts"),
+		cfg.Expert.Dir,
 		cfg.Tools.CodeRun.Workspace,
 		cfg.Session.HistoryPath,
-		filepath.Join(cfg.Dir, "memory"),
-		filepath.Join(cfg.Dir, "memory", "l0"),
+		filepath.Join(cfg.Dir, "experts"),
+		filepath.Join(cfg.Dir, "superman", "memory"),
+		filepath.Join(cfg.Dir, "superman", "memory", "l0"),
+		filepath.Join(cfg.Dir, "superman", "memory", "l1"),
+		filepath.Join(cfg.Dir, "superman", "memory", "l2"),
+		filepath.Join(cfg.Dir, "superman", "memory", "l3"),
+		filepath.Join(cfg.Dir, "superman", "memory", "l5"),
 	}
 	for _, d := range dirs {
 		if d == "" {

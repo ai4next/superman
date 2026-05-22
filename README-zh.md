@@ -189,8 +189,7 @@ superman/
 ├── config.example.yaml
 ├── config/tasks/                    # 定时任务定义示例
 ├── data/
-│   ├── memory/                      # 持久化记忆文件
-│   └── experts/                     # 专家 YAML 定义
+│   └── sessions/                    # 会话历史
 ├── go.mod
 └── go.sum
 ```
@@ -205,21 +204,18 @@ superman/
 ├── tui.log                               # TUI 运行时日志（重定向以防干扰界面显示）
 ├── hooks/                                # Hook 事件脚本（11 种生命周期事件）
 ├── skills/                               # Skill 定义（SKILL.md）
-├── data/
-│   └── experts/                          # 专家 YAML 定义（自动管理）
-├── memory/                               # 分层记忆持久化
-│   ├── l0/                               # L0 SOP 规则模板（*.md）
-│   ├── l1/
-│   │   └── index.txt                     # L1 热记忆索引（自动重建）
-│   ├── l2/
-│   │   └── entries.jsonl                 # L2 持久化工作记忆
-│   ├── l3/
-│   │   └── archive.jsonl                 # L3 长期归档记忆
-│   ├── l4/                               # L4 压缩会话归档
-│   └── candidates/                       # 进化候选（仅审查，不自动写入）
-│       ├── memory.jsonl
-│       ├── sop/
-│       └── experts/
+├── superman/
+│   ├── experts/                          # 专家 YAML 定义（自动管理）
+│   └── memory/                           # superman 独立分层记忆
+│       ├── l0/                           # L0 SOP 规则模板（*.md）
+│       ├── l1/index.txt                  # L1 热记忆索引（自动重建）
+│       ├── l2/entries.jsonl              # L2 持久化工作记忆
+│       ├── l3/archive.jsonl              # L3 长期归档记忆
+│       ├── l4/                           # L4 压缩会话归档
+│       └── candidates/                   # 进化候选（仅审查，不自动写入）
+└── experts/
+    └── {expert_name}/
+        └── memory/                       # 专家独立分层记忆
 ```
 
 ## 构建

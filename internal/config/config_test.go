@@ -81,6 +81,15 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Session.MaxTurns != 75 {
 		t.Errorf("default max_turns = %d, want 75", cfg.Session.MaxTurns)
 	}
+	if cfg.Dir != filepath.Join(home, ".sm") {
+		t.Errorf("default dir = %q, want %q", cfg.Dir, filepath.Join(home, ".sm"))
+	}
+	if cfg.Expert.Dir != filepath.Join(home, ".sm", "superman", "experts") {
+		t.Errorf("default expert dir = %q, want %q", cfg.Expert.Dir, filepath.Join(home, ".sm", "superman", "experts"))
+	}
+	if cfg.Expert.TopK != 2 {
+		t.Errorf("default expert top_k = %d, want 2", cfg.Expert.TopK)
+	}
 	if cfg.Reflect.Autonomous.IdleTimeout.AsDuration() != 30*time.Minute {
 		t.Errorf("default idle_timeout = %v, want 30m", cfg.Reflect.Autonomous.IdleTimeout.AsDuration())
 	}

@@ -235,7 +235,7 @@ func TestRegistryPersistence(t *testing.T) {
 	}
 
 	// Verify the file was written to disk
-	filePath := filepath.Join(baseDir, "data", "experts", "persistent-expert", "expert.yaml")
+	filePath := filepath.Join(baseDir, "persistent-expert", "expert.yaml")
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		t.Fatalf("expert.yaml was not written to disk: %s", filePath)
 	}
@@ -400,7 +400,7 @@ func TestRegistryUpdateAndDeleteRemovesFile(t *testing.T) {
 	r.Create(created)
 
 	// Verify file exists
-	filePath := filepath.Join(baseDir, "data", "experts", "temp-expert", "expert.yaml")
+	filePath := filepath.Join(baseDir, "temp-expert", "expert.yaml")
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		t.Fatalf("expert.yaml should exist: %s", filePath)
 	}

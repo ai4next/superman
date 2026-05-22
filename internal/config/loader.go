@@ -134,6 +134,12 @@ func applyDefaults(cfg *Config) {
 	if cfg.Session.AppName == "" {
 		cfg.Session.AppName = "superman"
 	}
+	if cfg.Expert.Dir == "" {
+		cfg.Expert.Dir = filepath.Join(cfg.Dir, "superman", "experts")
+	}
+	if cfg.Expert.TopK == 0 {
+		cfg.Expert.TopK = 2
+	}
 	if cfg.Reflect.Autonomous.IdleTimeout == 0 {
 		cfg.Reflect.Autonomous.IdleTimeout = Duration(30 * time.Minute)
 	}

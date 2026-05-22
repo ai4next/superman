@@ -16,16 +16,17 @@ import (
 // Registry manages expert definitions with file-based persistence.
 type Registry struct {
 	mu       sync.RWMutex
-	baseDir  string
+	dir      string
 	experts  map[string]*Spec
 	callLogs map[string][]CallRecord
 	idx      *invertedIndex
 }
 
-// NewRegistry creates a registry rooted at baseDir/data/experts/.
-func NewRegistry(baseDir string) *Registry {
+// NewRegistry creates a registry rooted at dir, where each expert lives under
+// dir/{expert_name}/expert.yaml.
+func NewRegistry(dir string) *Registry {
 	return &Registry{
-		baseDir:  baseDir,
+		dir:      dir,
 		experts:  make(map[string]*Spec),
 		callLogs: make(map[string][]CallRecord),
 	}
@@ -36,8 +37,7 @@ func (r *Registry) LoadFromDisk() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	expertsDir := filepath.Join(r.baseDir, "data", "experts")
-	entries, err := os.ReadDir(expertsDir)
+	entries, err := os.ReadDir(r.dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -49,7 +49,7 @@ func (r *Registry) LoadFromDisk() error {
 		if !entry.IsDir() {
 			continue
 		}
-		specPath := filepath.Join(expertsDir, entry.Name(), "expert.yaml")
+		specPath := filepath.Join(r.dir, entry.Name(), "expert.yaml")
 		data, err := os.ReadFile(specPath)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -159,7 +159,7 @@ func (r *Registry) Delete(name string) error {
 	delete(r.experts, name)
 	delete(r.callLogs, name)
 
-	dir := filepath.Join(r.baseDir, "data", "experts", name)
+	dir := filepath.Join(r.dir, name)
 	if err := os.RemoveAll(dir); err != nil {
 		log.Printf("[expert] error removing disk dir for %s: %v", name, err)
 	}
@@ -319,7 +319,7 @@ func (r *Registry) CreateVersion(name string, updated Spec) (*Spec, error) {
 // persistLocked writes a single expert spec to disk. Must be called while
 // holding r.mu write lock.
 func (r *Registry) persistLocked(spec *Spec) error {
-	dir := filepath.Join(r.baseDir, "data", "experts", spec.Name)
+	dir := filepath.Join(r.dir, spec.Name)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}

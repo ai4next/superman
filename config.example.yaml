@@ -72,5 +72,5 @@ reflect:
 
 expert:
   enabled: true
-  dir: ./data
+  dir: ${HOME}/.sm/superman/experts
   top_k: 2
