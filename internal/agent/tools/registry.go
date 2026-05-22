@@ -91,7 +91,7 @@ func RegisterAll(deps Dependencies) []tool.Tool {
 		tools = append(tools, newCreateExpertTool(deps.ExpertManager))
 	}
 	if deps.ExpertTools && deps.DelegateRunner != nil {
-		tools = append(tools, newDelegateTool(deps.DelegateRunner))
+		tools = append(tools, newDelegateTool(deps))
 	}
 
 	return tools

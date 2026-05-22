@@ -248,6 +248,67 @@ func (a *Analyzer) RunAnalysis() ([]Candidate, error) {
 	return candidates, nil
 }
 
+// AutoEvolve applies reviewable analysis candidates automatically. It keeps
+// RunAnalysis non-mutating for callers that still want an audit-only flow.
+func (a *Analyzer) AutoEvolve() ([]EvolutionRecord, error) {
+	if a.registry == nil {
+		return nil, nil
+	}
+	candidates, err := a.RunAnalysis()
+	if err != nil {
+		return nil, err
+	}
+	var records []EvolutionRecord
+	for _, candidate := range candidates {
+		switch candidate.Type {
+		case "create":
+			spec := Spec{
+				Name:           candidate.Name,
+				Summary:        candidate.Summary,
+				Description:    candidate.Description,
+				Domain:         inferDomain(candidate.ToolAllowlist),
+				Capabilities:   []string{candidate.Summary},
+				TriggerPattern: candidate.TriggerPattern,
+				ToolAllowlist:  candidate.ToolAllowlist,
+				SystemPrompt:   candidate.SystemPrompt,
+				Status:         StatusActive,
+				Confidence:     candidate.Confidence,
+				CreatedBy:      "auto_evolution",
+				Evidence:       candidate.Evidence,
+			}
+			created, createErr := a.registry.Create(spec)
+			if createErr != nil {
+				continue
+			}
+			record := nowRecord(EvolutionCreate, created.Name, candidate.Reason, candidate.Evidence)
+			record.Version = created.Version
+			_ = a.registry.LogEvolution(record)
+			records = append(records, record)
+		case "optimize":
+			updated := Spec{
+				Summary:        candidate.Summary,
+				Description:    candidate.Description,
+				TriggerPattern: candidate.TriggerPattern,
+				ToolAllowlist:  candidate.ToolAllowlist,
+				SystemPrompt:   candidate.SystemPrompt + "\n\nImprove reliability by being explicit about assumptions, required inputs, and failure conditions.",
+				Status:         StatusActive,
+				Confidence:     candidate.Confidence,
+				CreatedBy:      "auto_evolution",
+				Evidence:       candidate.Evidence,
+			}
+			created, versionErr := a.registry.CreateVersion(candidate.Name, updated)
+			if versionErr != nil {
+				continue
+			}
+			record := nowRecord(EvolutionOptimize, created.Name, candidate.Reason, candidate.Evidence)
+			record.Version = created.Version
+			_ = a.registry.LogEvolution(record)
+			records = append(records, record)
+		}
+	}
+	return records, nil
+}
+
 // WriteCandidates appends expert candidates to candidateDir/candidates.jsonl.
 func (a *Analyzer) WriteCandidates(candidateDir string, candidates []Candidate) error {
 	if len(candidates) == 0 {
@@ -403,6 +464,18 @@ func inferTools(fileTypes []string) []string {
 	}
 	sort.Strings(tools)
 	return tools
+}
+
+func inferDomain(tools []string) string {
+	for _, tool := range tools {
+		switch tool {
+		case "file_patch", "code_run":
+			return "software_engineering"
+		case "web_scan", "web_execute":
+			return "research"
+		}
+	}
+	return "general"
 }
 
 func tokenSet(s string) map[string]bool {

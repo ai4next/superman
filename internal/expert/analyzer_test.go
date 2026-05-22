@@ -188,3 +188,78 @@ func TestAnalyzerBuildsCallLogOptimizationCandidate(t *testing.T) {
 		t.Fatalf("candidate source = %q", candidates[0].Source)
 	}
 }
+
+func TestAnalyzerAutoEvolveCreatesExpert(t *testing.T) {
+	dir := t.TempDir()
+	reg := NewRegistry(filepath.Join(dir, "registry"))
+	reg.SetRuntimeDir(filepath.Join(dir, "runtime"))
+	a := NewAnalyzer(dir, reg)
+
+	turn := `{"turn":1,"timestamp":"2026-05-22T10:00:00Z","user_message":"fix the go test","agent_response":"ok","tool_calls":3}`
+	for i := 0; i < 10; i++ {
+		writeTestSession(t, dir, fmt.Sprintf("session-%03d", i), []string{turn})
+	}
+
+	records, err := a.AutoEvolve()
+	if err != nil {
+		t.Fatalf("AutoEvolve: %v", err)
+	}
+	if len(records) == 0 {
+		t.Fatal("expected evolution records")
+	}
+	if records[0].Action != EvolutionCreate {
+		t.Fatalf("action = %s, want create", records[0].Action)
+	}
+	if len(reg.List()) != 1 {
+		t.Fatalf("registry experts = %d, want 1", len(reg.List()))
+	}
+	created := reg.List()[0]
+	if created.Status != StatusActive {
+		t.Fatalf("status = %s, want active", created.Status)
+	}
+	if created.CreatedBy != "auto_evolution" {
+		t.Fatalf("created_by = %s", created.CreatedBy)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "runtime", "evolution.jsonl")); err != nil {
+		t.Fatalf("evolution log not written: %v", err)
+	}
+}
+
+func TestAnalyzerAutoEvolveOptimizesFlakyExpert(t *testing.T) {
+	dir := t.TempDir()
+	reg := NewRegistry(filepath.Join(dir, "registry"))
+	if _, err := reg.Create(Spec{
+		Name:           "flaky-expert",
+		Summary:        "Handles flaky tasks",
+		TriggerPattern: "flaky",
+		Status:         StatusActive,
+		SystemPrompt:   "Try to help.",
+	}); err != nil {
+		t.Fatalf("Create expert: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		if err := reg.RecordCall("flaky-expert", CallRecord{
+			Timestamp:  time.Now(),
+			TaskDesc:   fmt.Sprintf("failed task %d", i),
+			Mode:       ModeDelegate,
+			Success:    false,
+			DurationMs: 100,
+		}); err != nil {
+			t.Fatalf("RecordCall: %v", err)
+		}
+	}
+
+	records, err := NewAnalyzer(dir, reg).AutoEvolve()
+	if err != nil {
+		t.Fatalf("AutoEvolve: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1", len(records))
+	}
+	if records[0].Action != EvolutionOptimize {
+		t.Fatalf("action = %s, want optimize", records[0].Action)
+	}
+	if _, err := reg.Get("flaky-expert-v1"); err != nil {
+		t.Fatalf("expected optimized version: %v", err)
+	}
+}

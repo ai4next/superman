@@ -74,6 +74,7 @@ func (r *Registry) LoadFromDisk() error {
 			log.Printf("[expert] skip %s: bad YAML: %v", entry.Name(), err)
 			continue
 		}
+		normalizeSpec(&spec)
 		r.experts[spec.Name] = &spec
 	}
 	if r.runtimeDir != "" {
@@ -97,9 +98,7 @@ func (r *Registry) Create(spec Spec) (*Spec, error) {
 	now := time.Now()
 	spec.CreatedAt = now
 	spec.UpdatedAt = now
-	if spec.Status == "" {
-		spec.Status = StatusDraft
-	}
+	normalizeSpec(&spec)
 
 	// Persist to disk first, then add to memory
 	if err := r.persistLocked(&spec); err != nil {
@@ -151,13 +150,22 @@ func (r *Registry) Update(name string, spec Spec) error {
 
 	existing.Summary = spec.Summary
 	existing.Description = spec.Description
+	existing.Domain = spec.Domain
+	existing.Capabilities = append([]string(nil), spec.Capabilities...)
 	existing.TriggerPattern = spec.TriggerPattern
 	existing.ToolAllowlist = spec.ToolAllowlist
 	existing.SystemPrompt = spec.SystemPrompt
+	existing.InputContract = append([]string(nil), spec.InputContract...)
+	existing.OutputContract = append([]string(nil), spec.OutputContract...)
+	existing.RoutingPolicy = spec.RoutingPolicy
 	existing.Status = spec.Status
 	existing.Frequency = spec.Frequency
 	existing.Confidence = spec.Confidence
+	existing.CreatedBy = spec.CreatedBy
+	existing.Evidence = append([]string(nil), spec.Evidence...)
+	existing.Metrics = spec.Metrics
 	existing.UpdatedAt = time.Now()
+	normalizeSpec(existing)
 
 	return r.persistLocked(existing)
 }
@@ -202,7 +210,16 @@ func (r *Registry) Promote(name string, to Status) error {
 
 	spec.Status = to
 	spec.UpdatedAt = time.Now()
-	return r.persistLocked(spec)
+	if err := r.persistLocked(spec); err != nil {
+		return err
+	}
+	return r.appendEvolutionRecordLocked(EvolutionRecord{
+		Timestamp: time.Now(),
+		Action:    EvolutionActivate,
+		Expert:    name,
+		Version:   spec.Version,
+		Reason:    fmt.Sprintf("promoted to %s", to),
+	})
 }
 
 // ArchiveStale archives experts that haven't been successfully used in maxAgeDays.
@@ -273,13 +290,21 @@ func (r *Registry) RecordCall(name string, record CallRecord) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if _, ok := r.experts[name]; !ok {
+	spec, ok := r.experts[name]
+	if !ok {
 		return fmt.Errorf("expert %q not found", name)
 	}
 	if record.Timestamp.IsZero() {
 		record.Timestamp = time.Now()
 	}
 	r.callLogs[name] = append(r.callLogs[name], record)
+	stats := ComputeStats(r.callLogs[name])
+	spec.Frequency = stats.TotalCalls
+	spec.Metrics = metricsFromStats(stats)
+	spec.UpdatedAt = time.Now()
+	if err := r.persistLocked(spec); err != nil {
+		return err
+	}
 	if err := r.appendCallRecordLocked(name, record); err != nil {
 		return err
 	}
@@ -332,8 +357,16 @@ func (r *Registry) CreateVersion(name string, updated Spec) (*Spec, error) {
 	if updated.Status == "" {
 		updated.Status = existing.Status
 	}
+	updated.CreatedBy = "auto_evolution"
 
 	return r.Create(updated)
+}
+
+// LogEvolution appends an auditable expert evolution record.
+func (r *Registry) LogEvolution(record EvolutionRecord) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.appendEvolutionRecordLocked(record)
 }
 
 // persistLocked writes a single expert spec to disk. Must be called while
@@ -360,6 +393,25 @@ func (r *Registry) appendCallRecordLocked(name string, record CallRecord) error 
 		return err
 	}
 	path := filepath.Join(dir, "calls.jsonl")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return json.NewEncoder(f).Encode(record)
+}
+
+func (r *Registry) appendEvolutionRecordLocked(record EvolutionRecord) error {
+	if r.runtimeDir == "" {
+		return nil
+	}
+	if record.Timestamp.IsZero() {
+		record.Timestamp = time.Now()
+	}
+	if err := os.MkdirAll(r.runtimeDir, 0755); err != nil {
+		return err
+	}
+	path := filepath.Join(r.runtimeDir, "evolution.jsonl")
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return err
@@ -407,7 +459,46 @@ func copySpec(s *Spec) *Spec {
 		cp.ToolAllowlist = make([]string, len(s.ToolAllowlist))
 		copy(cp.ToolAllowlist, s.ToolAllowlist)
 	}
+	cp.Capabilities = append([]string(nil), s.Capabilities...)
+	cp.InputContract = append([]string(nil), s.InputContract...)
+	cp.OutputContract = append([]string(nil), s.OutputContract...)
+	cp.Evidence = append([]string(nil), s.Evidence...)
+	cp.RoutingPolicy.Modes = append([]CallMode(nil), s.RoutingPolicy.Modes...)
 	return &cp
+}
+
+func normalizeSpec(spec *Spec) {
+	if spec.Status == "" {
+		spec.Status = StatusDraft
+	}
+	if spec.CreatedBy == "" {
+		spec.CreatedBy = "manual"
+	}
+	if spec.Confidence == 0 {
+		spec.Confidence = 0.5
+	}
+	if spec.RoutingPolicy.MinConfidence == 0 {
+		spec.RoutingPolicy.MinConfidence = 0.35
+	}
+	if len(spec.RoutingPolicy.Modes) == 0 {
+		spec.RoutingPolicy.Modes = []CallMode{ModeConsult, ModeDelegate}
+	}
+	if len(spec.InputContract) == 0 {
+		spec.InputContract = []string{"task"}
+	}
+	if len(spec.OutputContract) == 0 {
+		spec.OutputContract = []string{"success", "summary", "findings", "confidence"}
+	}
+}
+
+func metricsFromStats(stats Stats) Metrics {
+	return Metrics{
+		TotalCalls:    stats.TotalCalls,
+		SuccessCalls:  stats.SuccessCalls,
+		SuccessRate:   stats.SuccessRate,
+		AvgDurationMs: stats.AvgDurationMs,
+		LastUsed:      stats.LastUsed,
+	}
 }
 
 // invertedIndex provides TF-scored full-text search over expert documents.

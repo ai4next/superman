@@ -20,6 +20,7 @@ import (
 	"github.com/ai4next/superman/internal/model"
 	"github.com/ai4next/superman/internal/plugin"
 	"github.com/ai4next/superman/internal/session"
+	"github.com/ai4next/superman/internal/task"
 )
 
 // memorySearchAdapter wraps memory.Service to implement tools.MemorySearcher.
@@ -85,43 +86,16 @@ func RunServe(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Periodic archiving (L2 → L3)
-	go func() {
-		ticker := time.NewTicker(cfg.Memory.L3.ArchiveInterval.AsDuration())
-		defer ticker.Stop()
-		for range ticker.C {
-			if archived, _ := memSvc.Archive(ctx, 48*time.Hour); archived > 0 {
-				log.Printf("[memory] archived %d entries", archived)
-			}
-		}
-	}()
+	// Background tasks (archiving, evolution, etc.)
+	tg := task.NewTickerGroup(ctx)
+	defer tg.Stop()
 
-	go func() {
-		ticker := time.NewTicker(cfg.Memory.Evolution.Interval.AsDuration())
-		defer ticker.Stop()
-		for range ticker.C {
-			candidates, err := memSvc.Evolve(ctx, filepath.Join(supermanMemoryDir, "candidates"))
-			if err != nil {
-				log.Printf("[memory] evolution warning: %v", err)
-				continue
-			}
-			if len(candidates) > 0 {
-				log.Printf("[memory] evolution wrote %d candidates", len(candidates))
-			}
-		}
-	}()
+	tg.Go(cfg.Memory.L3.ArchiveInterval.AsDuration(), task.NewArchiveFn(memSvc, 48*time.Hour))
+
+	tg.Go(cfg.Memory.Evolution.Interval.AsDuration(), task.NewEvolutionFn(memSvc, filepath.Join(supermanMemoryDir, "candidates")))
 
 	// L4 archiver: compress old session files
-	go func() {
-		ttl := cfg.Memory.L4.SessionTTL.AsDuration()
-		ticker := time.NewTicker(cfg.Memory.L4.ArchiveInterval.AsDuration())
-		defer ticker.Stop()
-		for range ticker.C {
-			if archived, _ := memory.ArchiveSessions(ctx, cfg.Session.HistoryPath, supermanMemoryDir, ttl); archived > 0 {
-				log.Printf("[memory] L4 archived %d sessions", archived)
-			}
-		}
-	}()
+	tg.Go(cfg.Memory.L4.ArchiveInterval.AsDuration(), task.NewL4ArchiveFn(cfg.Session.HistoryPath, supermanMemoryDir, cfg.Memory.L4.SessionTTL.AsDuration()))
 
 	// Expert Registry
 	var expertRegistry *expert.Registry
@@ -138,27 +112,7 @@ func RunServe(cmd *cobra.Command, args []string) error {
 	if cfg.Expert.Enabled && expertRegistry != nil {
 		patternAnalyzer := expert.NewAnalyzer(cfg.Session.HistoryPath, expertRegistry)
 		expertCandidateDir := filepath.Join(supermanMemoryDir, "candidates", "experts")
-		go func() {
-			ticker := time.NewTicker(30 * time.Minute)
-			defer ticker.Stop()
-			for range ticker.C {
-				candidates, err := patternAnalyzer.RunAnalysis()
-				if err != nil {
-					log.Printf("[expert] pattern analysis: %v", err)
-					continue
-				}
-				if err := patternAnalyzer.WriteCandidates(expertCandidateDir, candidates); err != nil {
-					log.Printf("[expert] candidate write warning: %v", err)
-					continue
-				}
-				if len(candidates) > 0 {
-					log.Printf("[expert] pattern analysis wrote %d expert candidates", len(candidates))
-					for _, c := range candidates {
-						log.Printf("[expert]   candidate: %s (confidence: %.2f)", c.Name, c.Confidence)
-					}
-				}
-			}
-		}()
+		tg.Go(30*time.Minute, task.NewExpertAnalysisFn(patternAnalyzer, expertCandidateDir))
 	}
 
 	// Delegate runner for expert sub-agent execution (Phase 2)

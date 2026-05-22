@@ -14,9 +14,12 @@ type expertInfo struct {
 	Name          string   `json:"name"`
 	Summary       string   `json:"summary"`
 	Description   string   `json:"description"`
+	Domain        string   `json:"domain,omitempty"`
+	Capabilities  []string `json:"capabilities,omitempty"`
 	ToolAllowlist []string `json:"tools"`
 	SystemPrompt  string   `json:"system_prompt"`
 	Status        string   `json:"status"`
+	Confidence    float64  `json:"confidence,omitempty"`
 }
 
 type queryExpertsInput struct {
@@ -45,9 +48,12 @@ func newQueryExpertsTool(em ExpertManager) tool.Tool {
 				Name:          s.Name,
 				Summary:       s.Summary,
 				Description:   s.Description,
+				Domain:        s.Domain,
+				Capabilities:  s.Capabilities,
 				ToolAllowlist: s.ToolAllowlist,
 				SystemPrompt:  s.SystemPrompt,
 				Status:        string(s.Status),
+				Confidence:    s.Confidence,
 			})
 		}
 
@@ -126,9 +132,10 @@ type delegateInput struct {
 }
 
 type delegateOutput struct {
-	Success  bool   `json:"success"`
-	Response string `json:"response,omitempty"`
-	Error    string `json:"error,omitempty"`
+	Success  bool                 `json:"success"`
+	Response string               `json:"response,omitempty"`
+	Result   *expert.ExpertResult `json:"result,omitempty"`
+	Error    string               `json:"error,omitempty"`
 }
 
 // DelegateRunner can execute a task using an expert's prompt.
@@ -136,10 +143,22 @@ type DelegateRunner interface {
 	RunDelegate(ctx context.Context, specName string, task string) (string, error)
 }
 
-func newDelegateTool(runner DelegateRunner) tool.Tool {
+type StructuredDelegateRunner interface {
+	RunDelegateResult(ctx context.Context, specName string, task expert.ExpertTask) (*expert.ExpertResult, error)
+}
+
+func newDelegateTool(deps Dependencies) tool.Tool {
 	handler := func(tctx tool.Context, input delegateInput) (delegateOutput, error) {
+		runner := deps.DelegateRunner
 		if runner == nil {
 			return delegateOutput{Success: false, Error: "Delegate runner not available"}, nil
+		}
+		if structured, ok := runner.(StructuredDelegateRunner); ok {
+			result, err := structured.RunDelegateResult(context.Background(), input.ExpertName, expert.NewTask(input.Task, enabledToolNames(deps)))
+			if err != nil {
+				return delegateOutput{Success: false, Error: err.Error()}, nil
+			}
+			return delegateOutput{Success: result.Success, Response: result.Summary, Result: result}, nil
 		}
 		resp, err := runner.RunDelegate(context.Background(), input.ExpertName, input.Task)
 		if err != nil {
@@ -152,4 +171,42 @@ func newDelegateTool(runner DelegateRunner) tool.Tool {
 		Description: "Delegate a task to an expert agent for independent execution. The expert will use its own system prompt and tools. Use this when a task needs deep specialization.",
 	}, handler)
 	return t
+}
+
+func enabledToolNames(deps Dependencies) []string {
+	var names []string
+	if deps.Config.Tools.CodeRun.Enabled {
+		names = append(names, "code_run")
+	}
+	if deps.Config.Tools.FileRead.Enabled {
+		names = append(names, "file_read")
+	}
+	if deps.Config.Tools.FileWrite.Enabled {
+		names = append(names, "file_write")
+	}
+	if deps.Config.Tools.FilePatch.Enabled {
+		names = append(names, "file_patch")
+	}
+	if deps.Config.Tools.WebScan.Enabled {
+		names = append(names, "web_scan")
+	}
+	if deps.Config.Tools.WebExecute.Enabled {
+		names = append(names, "web_execute")
+	}
+	if deps.Config.Tools.AskUser.Enabled {
+		names = append(names, "ask_user")
+	}
+	if deps.Config.Tools.Checkpoint.Enabled {
+		names = append(names, "checkpoint")
+	}
+	if deps.Config.Tools.LongTermMemory.Enabled {
+		names = append(names, "long_term_memory", "search_memory")
+	}
+	if deps.ExpertTools && deps.ExpertManager != nil && deps.Config.Expert.Enabled {
+		names = append(names, "query_experts", "create_expert")
+	}
+	if deps.ExpertTools && deps.DelegateRunner != nil {
+		names = append(names, "delegate_to_expert")
+	}
+	return names
 }

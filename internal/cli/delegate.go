@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -33,15 +34,26 @@ func newDelegateService(cfg *config.Config, llm model.LLM, registry *expert.Regi
 }
 
 func (ds *delegateService) RunDelegate(ctx context.Context, specName string, task string) (string, error) {
+	result, err := ds.RunDelegateResult(ctx, specName, expert.NewTask(task, nil))
+	if err != nil {
+		return "", err
+	}
+	if result.RawResponse != "" {
+		return result.RawResponse, nil
+	}
+	return result.Summary, nil
+}
+
+func (ds *delegateService) RunDelegateResult(ctx context.Context, specName string, task expert.ExpertTask) (*expert.ExpertResult, error) {
 	start := time.Now()
 	spec, err := ds.registry.Get(specName)
 	if err != nil {
-		return "", fmt.Errorf("expert %q not found: %w", specName, err)
+		return nil, fmt.Errorf("expert %q not found: %w", specName, err)
 	}
 	record := func(success bool) {
 		if recErr := ds.registry.RecordCall(spec.Name, expert.CallRecord{
 			Timestamp:  start,
-			TaskDesc:   task,
+			TaskDesc:   task.Task,
 			Mode:       expert.ModeDelegate,
 			Success:    success,
 			DurationMs: time.Since(start).Milliseconds(),
@@ -60,14 +72,14 @@ func (ds *delegateService) RunDelegate(ctx context.Context, specName string, tas
 	a, extraPlugins, err := agent.NewFromConfig(ds.llm, ds.cfg, agent.BuildConfig{
 		Name:              "expert-" + spec.Name,
 		Description:       spec.Summary,
-		Instruction:       spec.SystemPrompt,
+		Instruction:       spec.SystemPrompt + "\n\nReturn a JSON object matching ExpertResult: success, summary, findings, actions_taken, files_touched, tool_calls, confidence, risks, next_steps.",
 		MemoryService:     memSvc,
 		MemorySearcher:    searchAdapter,
 		EnableExpertTools: false,
 	})
 	if err != nil {
 		record(false)
-		return "", fmt.Errorf("create expert agent: %w", err)
+		return nil, fmt.Errorf("create expert agent: %w", err)
 	}
 
 	sessionService := session.InMemoryService()
@@ -80,15 +92,20 @@ func (ds *delegateService) RunDelegate(ctx context.Context, specName string, tas
 	})
 	if err != nil {
 		record(false)
-		return "", fmt.Errorf("create expert runner: %w", err)
+		return nil, fmt.Errorf("create expert runner: %w", err)
 	}
 
-	msg := genai.NewContentFromText(task, "user")
+	payload, err := json.Marshal(task)
+	if err != nil {
+		record(false)
+		return nil, fmt.Errorf("marshal expert task: %w", err)
+	}
+	msg := genai.NewContentFromText(string(payload), "user")
 	var response strings.Builder
 	for evt, evtErr := range r.Run(ctx, "expert-user", "expert-"+spec.Name, msg, adkagent.RunConfig{}) {
 		if evtErr != nil {
 			record(false)
-			return "", evtErr
+			return nil, evtErr
 		}
 		if evt.Content != nil {
 			for _, part := range evt.Content.Parts {
@@ -96,6 +113,42 @@ func (ds *delegateService) RunDelegate(ctx context.Context, specName string, tas
 			}
 		}
 	}
-	record(true)
-	return response.String(), nil
+	result := parseExpertResult(response.String())
+	record(result.Success)
+	return result, nil
+}
+
+func parseExpertResult(raw string) *expert.ExpertResult {
+	raw = strings.TrimSpace(raw)
+	result := &expert.ExpertResult{
+		Success:     true,
+		Summary:     raw,
+		Confidence:  0.5,
+		RawResponse: raw,
+	}
+	if raw == "" {
+		result.Success = false
+		result.Confidence = 0
+		return result
+	}
+	var parsed expert.ExpertResult
+	if err := json.Unmarshal([]byte(raw), &parsed); err == nil {
+		parsed.RawResponse = raw
+		if parsed.Confidence == 0 {
+			parsed.Confidence = 0.5
+		}
+		return &parsed
+	}
+	if start := strings.Index(raw, "{"); start >= 0 {
+		if end := strings.LastIndex(raw, "}"); end > start {
+			if err := json.Unmarshal([]byte(raw[start:end+1]), &parsed); err == nil {
+				parsed.RawResponse = raw
+				if parsed.Confidence == 0 {
+					parsed.Confidence = 0.5
+				}
+				return &parsed
+			}
+		}
+	}
+	return result
 }

@@ -7,15 +7,11 @@ General-purpose autonomous AI agent. Multi-model support, 13 built-in tools, lay
 
 ## Design Philosophy
 
-1. **Files over databases.** JSONL beats any vector store on portability, debuggability, and cost. Complexity is debt.
+- **Route over bloat.** One agent to rule them all is a fantasy. Experts are narrow sub-agents. The main agent just routes.
 
-2. **Inject over RAG.** The prompt is faster, cheaper, and more reliable than any retrieval pipeline. Most RAG exists to compensate for bad prompt design.
+- **Background over blocking.** Archiving, analysis, optimization — nothing should make the user wait.
 
-3. **Route over bloat.** One agent to rule them all is a fantasy. Experts are narrow sub-agents. The main agent just routes.
-
-4. **Background over blocking.** Archiving, analysis, optimization — nothing should make the user wait.
-
-5. **Simple over complicated.** Break hard problems into small steps. Long context fails not because it's short, but because it's noisy. Clarity always wins.
+- **Simple over complicated.** Break hard problems into small steps. Long context fails not because it's short, but because it's noisy. Clarity always wins.
 
 ---
 

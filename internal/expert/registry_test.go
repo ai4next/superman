@@ -58,6 +58,12 @@ func TestRegistryCreateAndGet(t *testing.T) {
 	if got.Confidence != 0.8 {
 		t.Errorf("Get got confidence %f, want %f", got.Confidence, 0.8)
 	}
+	if got.RoutingPolicy.MinConfidence == 0 {
+		t.Error("expected default routing policy")
+	}
+	if len(got.InputContract) == 0 || len(got.OutputContract) == 0 {
+		t.Error("expected default contracts")
+	}
 }
 
 func TestRegistryCreateDuplicate(t *testing.T) {
@@ -516,8 +522,12 @@ func TestRegistryGetReturnsCopy(t *testing.T) {
 
 	// Modify the returned slice (should not affect the registry)
 	got1.ToolAllowlist = append(got1.ToolAllowlist, "hacked")
+	got1.Capabilities = append(got1.Capabilities, "hacked")
 	if len(r.List()[0].ToolAllowlist) != 0 {
 		t.Error("Get did not return a copy - modifying ToolAllowlist leaked back")
+	}
+	if len(r.List()[0].Capabilities) != 0 {
+		t.Error("Get did not return a copy - modifying Capabilities leaked back")
 	}
 
 	// Modify the returned spec (should not affect the second Get)
@@ -527,6 +537,27 @@ func TestRegistryGetReturnsCopy(t *testing.T) {
 		t.Errorf("Get did not return a copy - summary was %q, want empty", got2again.Summary)
 	}
 	_ = got2
+}
+
+func TestRegistryRecordCallUpdatesMetrics(t *testing.T) {
+	dir := t.TempDir()
+	r := NewRegistry(dir)
+	if _, err := r.Create(Spec{Name: "metric-expert"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := r.RecordCall("metric-expert", CallRecord{Success: true, Mode: ModeDelegate, DurationMs: 100}); err != nil {
+		t.Fatalf("RecordCall: %v", err)
+	}
+	got, err := r.Get("metric-expert")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Frequency != 1 {
+		t.Fatalf("frequency = %d, want 1", got.Frequency)
+	}
+	if got.Metrics.SuccessRate != 1 {
+		t.Fatalf("success rate = %f, want 1", got.Metrics.SuccessRate)
+	}
 }
 
 func TestPromoteToActive(t *testing.T) {
