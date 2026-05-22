@@ -127,6 +127,7 @@ func RunServe(cmd *cobra.Command, args []string) error {
 	var expertRegistry *expert.Registry
 	if cfg.Expert.Enabled {
 		expertRegistry = expert.NewRegistry(cfg.Expert.Dir)
+		expertRegistry.SetRuntimeDir(filepath.Join(cfg.Dir, "experts"))
 		if err := expertRegistry.LoadFromDisk(); err != nil {
 			log.Printf("[expert] load warning: %v", err)
 		}
@@ -136,17 +137,24 @@ func RunServe(cmd *cobra.Command, args []string) error {
 	// Pattern analysis for expert discovery (Phase 2)
 	if cfg.Expert.Enabled && expertRegistry != nil {
 		patternAnalyzer := expert.NewAnalyzer(cfg.Session.HistoryPath, expertRegistry)
+		expertCandidateDir := filepath.Join(supermanMemoryDir, "candidates", "experts")
 		go func() {
 			ticker := time.NewTicker(30 * time.Minute)
 			defer ticker.Stop()
 			for range ticker.C {
-				created, err := patternAnalyzer.RunAnalysis()
+				candidates, err := patternAnalyzer.RunAnalysis()
 				if err != nil {
 					log.Printf("[expert] pattern analysis: %v", err)
-				} else if len(created) > 0 {
-					log.Printf("[expert] pattern analysis created %d new expert drafts", len(created))
-					for _, s := range created {
-						log.Printf("[expert]   draft: %s (confidence: %.2f)", s.Name, s.Confidence)
+					continue
+				}
+				if err := patternAnalyzer.WriteCandidates(expertCandidateDir, candidates); err != nil {
+					log.Printf("[expert] candidate write warning: %v", err)
+					continue
+				}
+				if len(candidates) > 0 {
+					log.Printf("[expert] pattern analysis wrote %d expert candidates", len(candidates))
+					for _, c := range candidates {
+						log.Printf("[expert]   candidate: %s (confidence: %.2f)", c.Name, c.Confidence)
 					}
 				}
 			}

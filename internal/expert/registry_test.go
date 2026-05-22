@@ -386,6 +386,48 @@ func TestRegistryRecordCall(t *testing.T) {
 	})
 }
 
+func TestRegistryRecordCallPersistence(t *testing.T) {
+	defDir := filepath.Join(t.TempDir(), "defs")
+	runtimeDir := filepath.Join(t.TempDir(), "runtime")
+
+	r1 := NewRegistry(defDir)
+	r1.SetRuntimeDir(runtimeDir)
+	if _, err := r1.Create(Spec{Name: "call-logger"}); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	record := CallRecord{
+		Timestamp:  time.Now(),
+		TaskDesc:   "review PR #42",
+		Mode:       ModeDelegate,
+		Success:    false,
+		DurationMs: 1500,
+	}
+	if err := r1.RecordCall("call-logger", record); err != nil {
+		t.Fatalf("RecordCall failed: %v", err)
+	}
+
+	path := filepath.Join(runtimeDir, "call-logger", "calls.jsonl")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("calls.jsonl was not written: %v", err)
+	}
+
+	r2 := NewRegistry(defDir)
+	r2.SetRuntimeDir(runtimeDir)
+	if err := r2.LoadFromDisk(); err != nil {
+		t.Fatalf("LoadFromDisk failed: %v", err)
+	}
+	records := r2.GetCallRecords("call-logger")
+	if len(records) != 1 {
+		t.Fatalf("loaded %d call records, want 1", len(records))
+	}
+	if records[0].TaskDesc != "review PR #42" {
+		t.Errorf("task desc = %q", records[0].TaskDesc)
+	}
+	if records[0].Success {
+		t.Error("expected persisted failed call")
+	}
+}
+
 func TestRegistryUpdateAndDeleteRemovesFile(t *testing.T) {
 	baseDir := t.TempDir()
 	r := NewRegistry(baseDir)

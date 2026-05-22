@@ -164,7 +164,7 @@ type SchedulerConfig struct {
 	TasksDir string `mapstructure:"tasks_dir"`
 }
 
-// ExpertConfig configures the expert think tank subsystem.
+// ExpertConfig configures the expert group subsystem.
 type ExpertConfig struct {
 	Enabled bool   `mapstructure:"enabled"`
 	Dir     string `mapstructure:"dir"`

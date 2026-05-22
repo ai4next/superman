@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func writeTestSession(t *testing.T, dir, name string, turns []string) {
@@ -59,7 +60,7 @@ func TestAnalyzerClusterByPattern(t *testing.T) {
 	}
 }
 
-func TestAnalyzerGenerateExpertDraft(t *testing.T) {
+func TestAnalyzerBuildExpertCandidate(t *testing.T) {
 	dir := t.TempDir()
 	reg := NewRegistry(dir)
 	a := NewAnalyzer(dir, reg)
@@ -72,32 +73,29 @@ func TestAnalyzerGenerateExpertDraft(t *testing.T) {
 		Confidence:   0.85,
 	}
 
-	draft, err := a.GenerateDraft(cluster)
-	if err != nil {
-		t.Fatalf("GenerateDraft failed: %v", err)
-	}
-	if draft.Name == "" {
+	candidate := a.BuildCandidate(cluster)
+	if candidate.Name == "" {
 		t.Error("expected generated name")
 	}
-	if draft.Confidence != 0.85 {
-		t.Errorf("expected confidence 0.85, got %f", draft.Confidence)
+	if candidate.Confidence != 0.85 {
+		t.Errorf("expected confidence 0.85, got %f", candidate.Confidence)
 	}
-	if draft.Status != StatusDraft {
-		t.Errorf("expected draft status, got %s", draft.Status)
+	if candidate.Type != "create" {
+		t.Errorf("expected create candidate, got %s", candidate.Type)
 	}
-
-	got, err := reg.Get(draft.Name)
-	if err != nil {
-		t.Fatalf("saved expert not found: %v", err)
+	if len(reg.List()) != 0 {
+		t.Fatal("BuildCandidate should not mutate the registry")
 	}
-	if got.Summary != "Go code review and test fixing" {
+	if candidate.Summary != "Go code review and test fixing" {
 		t.Errorf("summary mismatch")
 	}
 }
 
 func TestAnalyzerRunAnalysis(t *testing.T) {
 	dir := t.TempDir()
-	reg := NewRegistry(dir)
+	regDir := filepath.Join(dir, "registry")
+	candidateDir := filepath.Join(dir, "candidates", "experts")
+	reg := NewRegistry(regDir)
 	a := NewAnalyzer(dir, reg)
 
 	// Write 10 similar sessions to trigger cluster (need enough for confidence >= 0.5)
@@ -106,14 +104,87 @@ func TestAnalyzerRunAnalysis(t *testing.T) {
 		writeTestSession(t, dir, fmt.Sprintf("session-%03d", i), []string{turn})
 	}
 
-	created, err := a.RunAnalysis()
+	candidates, err := a.RunAnalysis()
 	if err != nil {
 		t.Fatalf("RunAnalysis failed: %v", err)
 	}
-	if len(created) == 0 {
-		t.Fatal("expected at least 1 expert draft")
+	if len(candidates) == 0 {
+		t.Fatal("expected at least 1 expert candidate")
 	}
-	if created[0].Status != StatusDraft {
-		t.Errorf("expected StatusDraft, got %s", created[0].Status)
+	if len(reg.List()) != 0 {
+		t.Fatal("RunAnalysis should not create registry experts")
+	}
+	if err := a.WriteCandidates(candidateDir, candidates); err != nil {
+		t.Fatalf("WriteCandidates failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(candidateDir, "candidates.jsonl")); err != nil {
+		t.Fatalf("expert candidates not written: %v", err)
+	}
+}
+
+func TestAnalyzerSkipsCoveredExpert(t *testing.T) {
+	dir := t.TempDir()
+	reg := NewRegistry(filepath.Join(dir, "registry"))
+	if _, err := reg.Create(Spec{
+		Name:           "fix-the-go-test",
+		Summary:        "fix the go test",
+		TriggerPattern: "fix the go test",
+		Status:         StatusActive,
+	}); err != nil {
+		t.Fatalf("Create expert: %v", err)
+	}
+	a := NewAnalyzer(dir, reg)
+
+	turn := `{"turn":1,"timestamp":"2026-05-22T10:00:00Z","user_message":"fix the go test","agent_response":"ok","tool_calls":3}`
+	for i := 0; i < 10; i++ {
+		writeTestSession(t, dir, fmt.Sprintf("session-%03d", i), []string{turn})
+	}
+
+	candidates, err := a.RunAnalysis()
+	if err != nil {
+		t.Fatalf("RunAnalysis failed: %v", err)
+	}
+	if len(candidates) != 0 {
+		t.Fatalf("expected covered pattern to be skipped, got %d candidates", len(candidates))
+	}
+}
+
+func TestAnalyzerBuildsCallLogOptimizationCandidate(t *testing.T) {
+	dir := t.TempDir()
+	reg := NewRegistry(filepath.Join(dir, "registry"))
+	if _, err := reg.Create(Spec{
+		Name:           "flaky-expert",
+		Summary:        "Handles flaky tasks",
+		TriggerPattern: "flaky",
+		Status:         StatusActive,
+		SystemPrompt:   "Try to help.",
+	}); err != nil {
+		t.Fatalf("Create expert: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		if err := reg.RecordCall("flaky-expert", CallRecord{
+			Timestamp:  time.Now(),
+			TaskDesc:   fmt.Sprintf("failed task %d", i),
+			Mode:       ModeDelegate,
+			Success:    false,
+			DurationMs: 100,
+		}); err != nil {
+			t.Fatalf("RecordCall: %v", err)
+		}
+	}
+
+	a := NewAnalyzer(dir, reg)
+	candidates, err := a.RunAnalysis()
+	if err != nil {
+		t.Fatalf("RunAnalysis failed: %v", err)
+	}
+	if len(candidates) != 1 {
+		t.Fatalf("expected 1 optimization candidate, got %d", len(candidates))
+	}
+	if candidates[0].Type != "optimize" {
+		t.Fatalf("candidate type = %q, want optimize", candidates[0].Type)
+	}
+	if candidates[0].Source != "call_log_analysis" {
+		t.Fatalf("candidate source = %q", candidates[0].Source)
 	}
 }

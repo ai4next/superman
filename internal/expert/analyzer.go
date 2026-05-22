@@ -1,6 +1,7 @@
 package expert
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,6 +27,24 @@ type ToolChainCluster struct {
 	SessionCount int
 	FileTypes    []string
 	Confidence   float64
+	SessionIDs   []string
+}
+
+// Candidate is a reviewable expert extraction or optimization proposal.
+type Candidate struct {
+	ID             string    `json:"id"`
+	Type           string    `json:"type"`
+	Name           string    `json:"name"`
+	Summary        string    `json:"summary"`
+	Description    string    `json:"description"`
+	TriggerPattern string    `json:"trigger_pattern"`
+	ToolAllowlist  []string  `json:"tools"`
+	SystemPrompt   string    `json:"system_prompt"`
+	Confidence     float64   `json:"confidence"`
+	Evidence       []string  `json:"evidence,omitempty"`
+	Source         string    `json:"source"`
+	Reason         string    `json:"reason"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // Analyzer reads session logs and extracts expert drafts from repeated patterns.
@@ -160,10 +179,13 @@ func (a *Analyzer) Cluster(chains []ToolChain) []ToolChainCluster {
 		}
 		totalTools := 0
 		tasks := make([]string, len(group))
+		sessionIDs := make([]string, 0, len(group))
 		for i, c := range group {
 			totalTools += c.ToolCount
 			tasks[i] = c.TaskSummary
+			sessionIDs = append(sessionIDs, c.SessionID)
 		}
+		sort.Strings(sessionIDs)
 
 		clusters = append(clusters, ToolChainCluster{
 			TaskSummary:  findCommonPrefix(tasks),
@@ -171,6 +193,7 @@ func (a *Analyzer) Cluster(chains []ToolChain) []ToolChainCluster {
 			SessionCount: len(group),
 			FileTypes:    group[0].FileTypes,
 			Confidence:   calculateConfidence(len(group), totalTools),
+			SessionIDs:   sessionIDs,
 		})
 	}
 
@@ -180,45 +203,143 @@ func (a *Analyzer) Cluster(chains []ToolChain) []ToolChainCluster {
 	return clusters
 }
 
-// GenerateDraft creates an expert draft from a cluster and saves it to the registry.
-func (a *Analyzer) GenerateDraft(cluster ToolChainCluster) (*Spec, error) {
+// BuildCandidate creates a reviewable expert candidate from a cluster without
+// mutating the registry.
+func (a *Analyzer) BuildCandidate(cluster ToolChainCluster) Candidate {
+	now := time.Now()
 	name := generateExpertName(cluster.TaskSummary)
-	spec := Spec{
+	return Candidate{
+		ID:             fmt.Sprintf("expert-cand-%d-%s", now.UnixNano(), name),
+		Type:           "create",
 		Name:           name,
 		Summary:        cluster.TaskSummary,
 		Description:    fmt.Sprintf("Automatically extracted from %d similar sessions involving %v files", cluster.SessionCount, cluster.FileTypes),
 		TriggerPattern: cluster.TaskSummary,
 		ToolAllowlist:  inferTools(cluster.FileTypes),
 		SystemPrompt:   fmt.Sprintf("You are a specialist extracted from %d similar task executions.\n\nYour expertise covers: %s\n\nFocus on tasks involving: %v", cluster.SessionCount, cluster.TaskSummary, cluster.FileTypes),
-		Status:         StatusDraft,
-		Frequency:      cluster.SessionCount,
 		Confidence:     cluster.Confidence,
+		Evidence:       cluster.SessionIDs,
+		Source:         "session_analysis",
+		Reason:         "Repeated task pattern may benefit from a dedicated expert.",
+		CreatedAt:      now,
 	}
-	return a.registry.Create(spec)
 }
 
-// RunAnalysis performs a full analysis cycle: extract -> cluster -> generate drafts.
-func (a *Analyzer) RunAnalysis() ([]*Spec, error) {
+// RunAnalysis performs a full analysis cycle: extract -> cluster -> build
+// reviewable candidates. It does not create or update official experts.
+func (a *Analyzer) RunAnalysis() ([]Candidate, error) {
 	chains, err := a.ExtractToolChains()
 	if err != nil {
 		return nil, err
 	}
 	if len(chains) == 0 {
-		return nil, nil
+		return a.buildCallLogCandidates(), nil
 	}
 
 	clusters := a.Cluster(chains)
-	var created []*Spec
+	var candidates []Candidate
 	for _, c := range clusters {
-		if c.Confidence >= 0.5 {
-			draft, err := a.GenerateDraft(c)
-			if err != nil {
-				continue
-			}
-			created = append(created, draft)
+		if c.Confidence < 0.5 || a.isCovered(c) {
+			continue
+		}
+		candidates = append(candidates, a.BuildCandidate(c))
+	}
+	candidates = append(candidates, a.buildCallLogCandidates()...)
+	return candidates, nil
+}
+
+// WriteCandidates appends expert candidates to candidateDir/candidates.jsonl.
+func (a *Analyzer) WriteCandidates(candidateDir string, candidates []Candidate) error {
+	if len(candidates) == 0 {
+		return nil
+	}
+	if candidateDir == "" {
+		return fmt.Errorf("candidate dir is empty")
+	}
+	if err := os.MkdirAll(candidateDir, 0755); err != nil {
+		return err
+	}
+	path := filepath.Join(candidateDir, "candidates.jsonl")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	enc := json.NewEncoder(f)
+	for _, candidate := range candidates {
+		if err := enc.Encode(candidate); err != nil {
+			return err
 		}
 	}
-	return created, nil
+	return nil
+}
+
+func (a *Analyzer) isCovered(cluster ToolChainCluster) bool {
+	if a.registry == nil {
+		return false
+	}
+	results := a.registry.Search(cluster.TaskSummary)
+	for _, spec := range results {
+		if spec.Status == StatusArchived {
+			continue
+		}
+		if strings.EqualFold(spec.Name, generateExpertName(cluster.TaskSummary)) {
+			return true
+		}
+		if jaccard(tokenSet(spec.TriggerPattern+" "+spec.Summary), tokenSet(cluster.TaskSummary)) >= 0.5 {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *Analyzer) buildCallLogCandidates() []Candidate {
+	if a.registry == nil {
+		return nil
+	}
+	var candidates []Candidate
+	now := time.Now()
+	for _, spec := range a.registry.List() {
+		if spec.Status == StatusArchived {
+			continue
+		}
+		records := a.registry.GetCallRecords(spec.Name)
+		stats := ComputeStats(records)
+		if stats.TotalCalls < 3 || stats.SuccessRate >= 0.5 {
+			continue
+		}
+		candidates = append(candidates, Candidate{
+			ID:             fmt.Sprintf("expert-cand-%d-%s-optimize", now.UnixNano(), spec.Name),
+			Type:           "optimize",
+			Name:           spec.Name,
+			Summary:        "Improve expert reliability: " + spec.Summary,
+			Description:    fmt.Sprintf("Expert has %d calls with %.0f%% success rate.", stats.TotalCalls, stats.SuccessRate*100),
+			TriggerPattern: spec.TriggerPattern,
+			ToolAllowlist:  spec.ToolAllowlist,
+			SystemPrompt:   spec.SystemPrompt,
+			Confidence:     clamp(1-stats.SuccessRate, 0.5, 1),
+			Evidence:       callEvidence(records, 5),
+			Source:         "call_log_analysis",
+			Reason:         "Repeated failed calls suggest the expert prompt, scope, or tool allowlist should be reviewed.",
+			CreatedAt:      now,
+		})
+	}
+	return candidates
+}
+
+func callEvidence(records []CallRecord, limit int) []string {
+	var evidence []string
+	for i := len(records) - 1; i >= 0 && len(evidence) < limit; i-- {
+		if records[i].Success {
+			continue
+		}
+		task := strings.TrimSpace(records[i].TaskDesc)
+		if task == "" {
+			task = string(records[i].Mode)
+		}
+		evidence = append(evidence, truncate(task, 120))
+	}
+	return evidence
 }
 
 func findCommonPrefix(tasks []string) string {
@@ -282,6 +403,44 @@ func inferTools(fileTypes []string) []string {
 	}
 	sort.Strings(tools)
 	return tools
+}
+
+func tokenSet(s string) map[string]bool {
+	result := make(map[string]bool)
+	for _, field := range strings.Fields(strings.ToLower(s)) {
+		token := strings.Trim(field, ".,;:!?()[]{}\"'")
+		if len(token) >= 2 {
+			result[token] = true
+		}
+	}
+	return result
+}
+
+func jaccard(a, b map[string]bool) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	var intersection int
+	for token := range a {
+		if b[token] {
+			intersection++
+		}
+	}
+	union := len(a) + len(b) - intersection
+	if union == 0 {
+		return 0
+	}
+	return float64(intersection) / float64(union)
+}
+
+func clamp(v, min, max float64) float64 {
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
 }
 
 func truncate(s string, maxLen int) string {

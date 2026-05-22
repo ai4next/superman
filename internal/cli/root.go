@@ -32,7 +32,9 @@ func ensureDirs(cfg *config.Config) error {
 		filepath.Join(cfg.Dir, "superman", "memory", "l1"),
 		filepath.Join(cfg.Dir, "superman", "memory", "l2"),
 		filepath.Join(cfg.Dir, "superman", "memory", "l3"),
-		filepath.Join(cfg.Dir, "superman", "memory", "l5"),
+		filepath.Join(cfg.Dir, "superman", "memory", "l4"),
+		filepath.Join(cfg.Dir, "superman", "memory", "candidates", "sop"),
+		filepath.Join(cfg.Dir, "superman", "memory", "candidates", "experts"),
 	}
 	for _, d := range dirs {
 		if d == "" {

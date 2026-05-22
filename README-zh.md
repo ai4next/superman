@@ -3,7 +3,7 @@
 
 ![Logo](assets/banner.png)
 
-通用自治 AI Agent。多模型支持、13 个内建工具、分层记忆、专家智库。
+通用自治 AI Agent。多模型支持、13 个内建工具、分层记忆、专家团。
 
 ## 设计哲学
 
@@ -40,7 +40,7 @@ go run . run "这个目录里有什么？"
 - **多模型支持** — Gemini (Vertex AI)、OpenAI、DeepSeek、Claude、Ollama 及任何兼容 OpenAI 的 API
 - **13 个内建工具** — 代码执行、文件读写/编辑、网页抓取、浏览器操作、用户交互、工作笔记、长期记忆、记忆检索、专家查询/创建/委托
 - **分层记忆 (L0-L4)** — SOP 规则、记忆索引、持久存储、会话归档、历史会话压缩
-- **专家智库** — 子 Agent 调度，生命周期管理（草稿 → 活跃 → 成熟 → 归档），从使用模式自动萃取
+- **专家团** — 子 Agent 调度，生命周期管理（草稿 → 活跃 → 成熟 → 归档），从使用模式自动萃取
 - **插件系统** — 记忆同步、Token 追踪、工具日志、会话回收
 - **TUI 界面** — Bubble Tea + Lipgloss，暗色主题，Emacs 风格键绑定
 - **自主模式** — 空闲触发反思 + 定时任务执行
@@ -182,7 +182,7 @@ superman/
 │   ├── plugin/                      # 插件注册中心 + 内建插件
 │   ├── hook/                         # Hook 管理器 + 脚本执行器
 │   ├── reflect/                     # 自主空闲监听 + 调度器
-│   └── expert/                      # 专家智库（注册中心、委托执行、
+│   └── expert/                      # 专家团（注册中心、委托执行、
 │                                    #   分析器、统计、FTS5 索引）
 ├── hooks/                            # Hook 脚本目录（约定式，11 个事件子目录）
 ├── skills/                           # Skill 定义目录（ADK skilltoolset）
@@ -213,8 +213,11 @@ superman/
 │       ├── l3/archive.jsonl              # L3 长期归档记忆
 │       ├── l4/                           # L4 压缩会话归档
 │       └── candidates/                   # 进化候选（仅审查，不自动写入）
+│           ├── sop/
+│           └── experts/candidates.jsonl  # 专家萃取候选
 └── experts/
     └── {expert_name}/
+        ├── calls.jsonl                   # 专家咨询/委托调用记录
         └── memory/                       # 专家独立分层记忆
 ```
 

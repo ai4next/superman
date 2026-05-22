@@ -3,7 +3,7 @@
 
 ![Logo](assets/banner.png)
 
-General-purpose autonomous AI agent. Multi-model support, 13 built-in tools, layered memory, expert think tank.
+General-purpose autonomous AI agent. Multi-model support, 13 built-in tools, layered memory, expert group.
 
 ## Design Philosophy
 
@@ -40,7 +40,7 @@ go run . run "What's in this directory?"
 - **Multi-model support** — Gemini (Vertex AI), OpenAI, DeepSeek, Claude, Ollama, and any OpenAI-compatible API
 - **13 built-in tools** — code execution, file read/write/patch, web scanning, browser execution, user interaction, working memory, long-term memory, memory search, expert query/create/delegate
 - **Layered memory (L0-L4)** — SOP rules, memory index, persistent storage, session archives, historical session compression
-- **Expert think tank** — sub-agent dispatch with lifecycle management (draft → active → mature → archived), automatic extraction from usage patterns
+- **Expert group** — sub-agent dispatch with lifecycle management (draft → active → mature → archived), automatic extraction from usage patterns
 - **Plugin system** — memory sync, token tracking, tool logging, session reaper
 - **TUI interface** — Bubble Tea + Lipgloss, dark theme, Emacs-style keybindings
 - **Autonomous modes** — idle-triggered reflection and scheduled task execution
@@ -182,7 +182,7 @@ superman/
 │   ├── plugin/                      # Plugin registry + built-ins
 │   ├── hook/                         # Hook manager + script runner
 │   ├── reflect/                     # Autonomous idle watcher + scheduler
-│   └── expert/                      # Expert think tank (registry, delegate,
+│   └── expert/                      # Expert group (registry, delegate,
 │                                    #   analyzer, stats, FTS5 index)
 ├── hooks/                            # Hook scripts (convention-based, 11 event dirs)
 ├── skills/                           # Skill definitions (ADK skilltoolset)
@@ -213,8 +213,11 @@ All runtime data is stored under `cfg.Dir` (`~/.sm/` by default), automatically 
 │       ├── l3/archive.jsonl              # L3 long-term archived memory
 │       ├── l4/                           # L4 compressed session archives
 │       └── candidates/                   # Evolution candidates (review-only)
+│           ├── sop/
+│           └── experts/candidates.jsonl  # Expert extraction candidates
 └── experts/
     └── {expert_name}/
+        ├── calls.jsonl                   # Expert consult/delegate call log
         └── memory/                       # Expert's isolated layered memory
 ```
 

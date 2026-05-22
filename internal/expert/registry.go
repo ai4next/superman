@@ -1,6 +1,8 @@
 package expert
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -15,11 +17,12 @@ import (
 
 // Registry manages expert definitions with file-based persistence.
 type Registry struct {
-	mu       sync.RWMutex
-	dir      string
-	experts  map[string]*Spec
-	callLogs map[string][]CallRecord
-	idx      *invertedIndex
+	mu         sync.RWMutex
+	dir        string
+	runtimeDir string
+	experts    map[string]*Spec
+	callLogs   map[string][]CallRecord
+	idx        *invertedIndex
 }
 
 // NewRegistry creates a registry rooted at dir, where each expert lives under
@@ -30,6 +33,14 @@ func NewRegistry(dir string) *Registry {
 		experts:  make(map[string]*Spec),
 		callLogs: make(map[string][]CallRecord),
 	}
+}
+
+// SetRuntimeDir configures where per-expert runtime data is stored. Call logs
+// are persisted under runtimeDir/{expert_name}/calls.jsonl.
+func (r *Registry) SetRuntimeDir(runtimeDir string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.runtimeDir = runtimeDir
 }
 
 // LoadFromDisk reads all expert definitions from disk into the registry.
@@ -64,6 +75,9 @@ func (r *Registry) LoadFromDisk() error {
 			continue
 		}
 		r.experts[spec.Name] = &spec
+	}
+	if r.runtimeDir != "" {
+		r.loadCallLogsLocked()
 	}
 	return nil
 }
@@ -262,7 +276,13 @@ func (r *Registry) RecordCall(name string, record CallRecord) error {
 	if _, ok := r.experts[name]; !ok {
 		return fmt.Errorf("expert %q not found", name)
 	}
+	if record.Timestamp.IsZero() {
+		record.Timestamp = time.Now()
+	}
 	r.callLogs[name] = append(r.callLogs[name], record)
+	if err := r.appendCallRecordLocked(name, record); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -329,6 +349,55 @@ func (r *Registry) persistLocked(spec *Spec) error {
 	}
 	path := filepath.Join(dir, "expert.yaml")
 	return os.WriteFile(path, data, 0644)
+}
+
+func (r *Registry) appendCallRecordLocked(name string, record CallRecord) error {
+	if r.runtimeDir == "" {
+		return nil
+	}
+	dir := filepath.Join(r.runtimeDir, name)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	path := filepath.Join(dir, "calls.jsonl")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return json.NewEncoder(f).Encode(record)
+}
+
+func (r *Registry) loadCallLogsLocked() {
+	for name := range r.experts {
+		path := filepath.Join(r.runtimeDir, name, "calls.jsonl")
+		f, err := os.Open(path)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				log.Printf("[expert] call log load warning for %s: %v", name, err)
+			}
+			continue
+		}
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" {
+				continue
+			}
+			var record CallRecord
+			if err := json.Unmarshal([]byte(line), &record); err != nil {
+				log.Printf("[expert] skip corrupt call log for %s: %v", name, err)
+				continue
+			}
+			r.callLogs[name] = append(r.callLogs[name], record)
+		}
+		if err := scanner.Err(); err != nil {
+			log.Printf("[expert] call log scan warning for %s: %v", name, err)
+		}
+		if err := f.Close(); err != nil {
+			log.Printf("[expert] call log close warning for %s: %v", name, err)
+		}
+	}
 }
 
 // copySpec returns a deep copy of a Spec.

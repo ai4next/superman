@@ -6,6 +6,7 @@ import (
 	"log"
 	"path/filepath"
 	"strings"
+	"time"
 
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/model"
@@ -32,9 +33,21 @@ func newDelegateService(cfg *config.Config, llm model.LLM, registry *expert.Regi
 }
 
 func (ds *delegateService) RunDelegate(ctx context.Context, specName string, task string) (string, error) {
+	start := time.Now()
 	spec, err := ds.registry.Get(specName)
 	if err != nil {
 		return "", fmt.Errorf("expert %q not found: %w", specName, err)
+	}
+	record := func(success bool) {
+		if recErr := ds.registry.RecordCall(spec.Name, expert.CallRecord{
+			Timestamp:  start,
+			TaskDesc:   task,
+			Mode:       expert.ModeDelegate,
+			Success:    success,
+			DurationMs: time.Since(start).Milliseconds(),
+		}); recErr != nil {
+			log.Printf("[expert] record delegate call warning for %s: %v", spec.Name, recErr)
+		}
 	}
 
 	expertMemoryDir := filepath.Join(ds.cfg.Dir, "experts", spec.Name, "memory")
@@ -53,6 +66,7 @@ func (ds *delegateService) RunDelegate(ctx context.Context, specName string, tas
 		EnableExpertTools: false,
 	})
 	if err != nil {
+		record(false)
 		return "", fmt.Errorf("create expert agent: %w", err)
 	}
 
@@ -65,6 +79,7 @@ func (ds *delegateService) RunDelegate(ctx context.Context, specName string, tas
 		AutoCreateSession: true,
 	})
 	if err != nil {
+		record(false)
 		return "", fmt.Errorf("create expert runner: %w", err)
 	}
 
@@ -72,6 +87,7 @@ func (ds *delegateService) RunDelegate(ctx context.Context, specName string, tas
 	var response strings.Builder
 	for evt, evtErr := range r.Run(ctx, "expert-user", "expert-"+spec.Name, msg, adkagent.RunConfig{}) {
 		if evtErr != nil {
+			record(false)
 			return "", evtErr
 		}
 		if evt.Content != nil {
@@ -80,5 +96,6 @@ func (ds *delegateService) RunDelegate(ctx context.Context, specName string, tas
 			}
 		}
 	}
+	record(true)
 	return response.String(), nil
 }
