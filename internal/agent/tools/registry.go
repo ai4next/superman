@@ -40,6 +40,7 @@ type Dependencies struct {
 	MemoryService  MemoryStorer
 	MemorySearcher MemorySearcher
 	ExpertManager  ExpertManager `json:"-"`
+	DelegateRunner DelegateRunner
 }
 
 // RegisterAll creates and returns all enabled tools.
@@ -79,6 +80,9 @@ func RegisterAll(deps Dependencies) []tool.Tool {
 	if deps.ExpertManager != nil && deps.Config.Expert.Enabled {
 		tools = append(tools, newQueryExpertsTool(deps.ExpertManager))
 		tools = append(tools, newCreateExpertTool(deps.ExpertManager))
+	}
+	if deps.DelegateRunner != nil {
+		tools = append(tools, newDelegateTool(deps.DelegateRunner))
 	}
 
 	return tools

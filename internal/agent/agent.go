@@ -19,13 +19,14 @@ var systemPrompt string
 
 // New creates a new Superman agent with all registered tools, optional SOP rules,
 // and L1 memory index injected into the system prompt.
-func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, memSearcher tools.MemorySearcher, sopContent string, expertRegistry *expert.Registry) (agent.Agent, error) {
+func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, memSearcher tools.MemorySearcher, sopContent string, expertRegistry *expert.Registry, delegateRunner tools.DelegateRunner) (agent.Agent, error) {
 	deps := tools.Dependencies{
 		Config:         cfg,
 		Workspace:      cfg.Tools.CodeRun.Workspace,
 		MemoryService:  memSvc,
 		MemorySearcher: memSearcher,
 		ExpertManager:  expertRegistry,
+		DelegateRunner: delegateRunner,
 	}
 
 	toolList := tools.RegisterAll(deps)
@@ -66,5 +67,5 @@ func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, memSearcher 
 
 // NewWithoutMemory creates an agent without a memory service (for simple CLI usage).
 func NewWithoutMemory(llm model.LLM, cfg *config.Config) (agent.Agent, error) {
-	return New(llm, cfg, nil, nil, "", nil)
+	return New(llm, cfg, nil, nil, "", nil, nil)
 }

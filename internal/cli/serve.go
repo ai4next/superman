@@ -114,6 +114,35 @@ func RunServe(cmd *cobra.Command, args []string) error {
 		log.Printf("[expert] loaded %d experts", len(expertRegistry.List()))
 	}
 
+	// Pattern analysis for expert discovery (Phase 2)
+	if cfg.Expert.Enabled && expertRegistry != nil {
+		patternAnalyzer := expert.NewAnalyzer(cfg.Session.HistoryPath, expertRegistry)
+		go func() {
+			ticker := time.NewTicker(30 * time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					created, err := patternAnalyzer.RunAnalysis()
+					if err != nil {
+						log.Printf("[expert] pattern analysis: %v", err)
+					} else if len(created) > 0 {
+						log.Printf("[expert] pattern analysis created %d new expert drafts", len(created))
+						for _, s := range created {
+							log.Printf("[expert]   draft: %s (confidence: %.2f)", s.Name, s.Confidence)
+						}
+					}
+				}
+			}
+		}()
+	}
+
+	// Delegate runner for expert sub-agent execution (Phase 2)
+	var delegateRunner tools.DelegateRunner
+	if cfg.Expert.Enabled && expertRegistry != nil {
+		delegateRunner = expert.NewDelegateService(cfg, llm, expertRegistry)
+	}
+
 	// Session manager with JSONL persistence
 	sessMgr := session.New(adksession.InMemoryService(), cfg.Session.HistoryPath, cfg.Session.MaxTurns)
 
@@ -137,7 +166,7 @@ func RunServe(cmd *cobra.Command, args []string) error {
 	searchAdapter := &memorySearchAdapter{svc: memSvc}
 
 	// Agent with memory service, search, and SOP templates
-	a, err := agent.New(llm, cfg, memSvc, searchAdapter, sopContent, expertRegistry)
+	a, err := agent.New(llm, cfg, memSvc, searchAdapter, sopContent, expertRegistry, delegateRunner)
 	if err != nil {
 		return fmt.Errorf("create agent: %w", err)
 	}

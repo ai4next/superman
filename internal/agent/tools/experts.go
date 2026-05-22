@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/ai4next/superman/internal/expert"
@@ -115,6 +116,40 @@ func newCreateExpertTool(em ExpertManager) tool.Tool {
 	t, _ := functiontool.New(functiontool.Config{
 		Name:        "create_expert",
 		Description: "Create a new expert agent with a name, description, trigger pattern, tool allowlist, and system prompt. Use this to define reusable specialized agents for common task types.",
+	}, handler)
+	return t
+}
+
+type delegateInput struct {
+	ExpertName string `json:"expert_name" jsonschema:"Name of the expert to delegate to"`
+	Task       string `json:"task" jsonschema:"The task description to send to the expert"`
+}
+
+type delegateOutput struct {
+	Success  bool   `json:"success"`
+	Response string `json:"response,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+// DelegateRunner can execute a task using an expert's prompt.
+type DelegateRunner interface {
+	RunDelegate(ctx context.Context, specName string, task string) (string, error)
+}
+
+func newDelegateTool(runner DelegateRunner) tool.Tool {
+	handler := func(tctx tool.Context, input delegateInput) (delegateOutput, error) {
+		if runner == nil {
+			return delegateOutput{Success: false, Error: "Delegate runner not available"}, nil
+		}
+		resp, err := runner.RunDelegate(context.Background(), input.ExpertName, input.Task)
+		if err != nil {
+			return delegateOutput{Success: false, Error: err.Error()}, nil
+		}
+		return delegateOutput{Success: true, Response: resp}, nil
+	}
+	t, _ := functiontool.New(functiontool.Config{
+		Name:        "delegate_to_expert",
+		Description: "Delegate a task to an expert agent for independent execution. The expert will use its own system prompt and tools. Use this when a task needs deep specialization.",
 	}, handler)
 	return t
 }
