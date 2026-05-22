@@ -1,0 +1,488 @@
+package expert
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func TestRegistryCreateAndGet(t *testing.T) {
+	baseDir := t.TempDir()
+	r := NewRegistry(baseDir)
+
+	spec, err := r.Create(Spec{
+		Name:           "code-reviewer",
+		Summary:        "Reviews Go code for style and correctness",
+		Description:    "A detailed code review expert",
+		TriggerPattern: "review code|code review",
+		ToolAllowlist:  []string{"read", "bash"},
+		SystemPrompt:   "You are a code review expert.",
+		Status:         StatusActive,
+		Frequency:      0,
+		Confidence:     0.8,
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	if spec.Name != "code-reviewer" {
+		t.Errorf("got name %q, want %q", spec.Name, "code-reviewer")
+	}
+	if spec.Summary != "Reviews Go code for style and correctness" {
+		t.Errorf("got summary %q, want %q", spec.Summary, "Reviews Go code for style and correctness")
+	}
+	if spec.Status != StatusActive {
+		t.Errorf("got status %q, want %q", spec.Status, StatusActive)
+	}
+	if len(spec.ToolAllowlist) != 2 {
+		t.Errorf("got %d tools, want 2", len(spec.ToolAllowlist))
+	}
+	if spec.CreatedAt.IsZero() {
+		t.Errorf("CreatedAt should be set")
+	}
+	if spec.UpdatedAt.IsZero() {
+		t.Errorf("UpdatedAt should be set")
+	}
+	if !spec.CreatedAt.Equal(spec.UpdatedAt) {
+		t.Errorf("CreatedAt and UpdatedAt should be equal on create")
+	}
+
+	// Get should return a copy with same fields
+	got, err := r.Get("code-reviewer")
+	if err != nil {
+		t.Fatalf("Get failed: %v", err)
+	}
+	if got.Name != "code-reviewer" {
+		t.Errorf("Get got name %q, want %q", got.Name, "code-reviewer")
+	}
+	if got.Confidence != 0.8 {
+		t.Errorf("Get got confidence %f, want %f", got.Confidence, 0.8)
+	}
+}
+
+func TestRegistryCreateDuplicate(t *testing.T) {
+	baseDir := t.TempDir()
+	r := NewRegistry(baseDir)
+
+	_, err := r.Create(Spec{Name: "dup"})
+	if err != nil {
+		t.Fatalf("first create failed: %v", err)
+	}
+	_, err = r.Create(Spec{Name: "dup"})
+	if err == nil {
+		t.Fatal("expected error on duplicate create")
+	}
+}
+
+func TestRegistryCreateEmptyName(t *testing.T) {
+	baseDir := t.TempDir()
+	r := NewRegistry(baseDir)
+
+	_, err := r.Create(Spec{Name: ""})
+	if err == nil {
+		t.Fatal("expected error on empty name")
+	}
+}
+
+func TestRegistryGetNotFound(t *testing.T) {
+	baseDir := t.TempDir()
+	r := NewRegistry(baseDir)
+
+	_, err := r.Get("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent expert")
+	}
+}
+
+func TestRegistryList(t *testing.T) {
+	baseDir := t.TempDir()
+	r := NewRegistry(baseDir)
+
+	r.Create(Spec{Name: "expert-a"})
+	r.Create(Spec{Name: "expert-b"})
+
+	experts := r.List()
+	if len(experts) != 2 {
+		t.Fatalf("List returned %d experts, want 2", len(experts))
+	}
+
+	names := make(map[string]bool)
+	for _, e := range experts {
+		names[e.Name] = true
+	}
+	if !names["expert-a"] {
+		t.Error("expert-a not in list")
+	}
+	if !names["expert-b"] {
+		t.Error("expert-b not in list")
+	}
+}
+
+func TestRegistryListEmpty(t *testing.T) {
+	baseDir := t.TempDir()
+	r := NewRegistry(baseDir)
+
+	experts := r.List()
+	if len(experts) != 0 {
+		t.Fatalf("expected empty list, got %d", len(experts))
+	}
+}
+
+func TestRegistryUpdate(t *testing.T) {
+	baseDir := t.TempDir()
+	r := NewRegistry(baseDir)
+
+	r.Create(Spec{
+		Name:           "reviewer",
+		Summary:        "Original summary",
+		Description:    "Original description",
+		TriggerPattern: "original pattern",
+		Status:         StatusDraft,
+	})
+
+	err := r.Update("reviewer", Spec{
+		Summary:        "Updated summary",
+		Description:    "Updated description",
+		TriggerPattern: "updated pattern",
+		ToolAllowlist:  []string{"read"},
+		SystemPrompt:   "Updated prompt",
+		Status:         StatusActive,
+		Frequency:      5,
+		Confidence:     0.9,
+	})
+	if err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+
+	got, err := r.Get("reviewer")
+	if err != nil {
+		t.Fatalf("Get after update failed: %v", err)
+	}
+	if got.Summary != "Updated summary" {
+		t.Errorf("got summary %q, want %q", got.Summary, "Updated summary")
+	}
+	if got.Description != "Updated description" {
+		t.Errorf("got description %q, want %q", got.Description, "Updated description")
+	}
+	if got.TriggerPattern != "updated pattern" {
+		t.Errorf("got trigger %q, want %q", got.TriggerPattern, "updated pattern")
+	}
+	if got.Status != StatusActive {
+		t.Errorf("got status %q, want %q", got.Status, StatusActive)
+	}
+	if got.Confidence != 0.9 {
+		t.Errorf("got confidence %f, want %f", got.Confidence, 0.9)
+	}
+	if got.UpdatedAt.Equal(got.CreatedAt) {
+		t.Errorf("UpdatedAt should have changed after update")
+	}
+}
+
+func TestRegistryUpdateNotFound(t *testing.T) {
+	baseDir := t.TempDir()
+	r := NewRegistry(baseDir)
+
+	err := r.Update("nonexistent", Spec{})
+	if err == nil {
+		t.Fatal("expected error updating nonexistent expert")
+	}
+}
+
+func TestRegistryDelete(t *testing.T) {
+	baseDir := t.TempDir()
+	r := NewRegistry(baseDir)
+
+	r.Create(Spec{Name: "to-delete"})
+
+	err := r.Delete("to-delete")
+	if err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
+
+	_, err = r.Get("to-delete")
+	if err == nil {
+		t.Fatal("expected error getting deleted expert")
+	}
+}
+
+func TestRegistryDeleteNotFound(t *testing.T) {
+	baseDir := t.TempDir()
+	r := NewRegistry(baseDir)
+
+	err := r.Delete("nonexistent")
+	if err == nil {
+		t.Fatal("expected error deleting nonexistent expert")
+	}
+}
+
+func TestRegistryPersistence(t *testing.T) {
+	baseDir := t.TempDir()
+
+	// Create and save an expert
+	r1 := NewRegistry(baseDir)
+	created, err := r1.Create(Spec{
+		Name:           "persistent-expert",
+		Summary:        "Survives restarts",
+		Description:    "This expert persists to disk",
+		TriggerPattern: "persist|survive",
+		ToolAllowlist:  []string{"read", "write"},
+		SystemPrompt:   "You persist.",
+		Status:         StatusActive,
+		Confidence:     0.95,
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// Verify the file was written to disk
+	filePath := filepath.Join(baseDir, "data", "experts", "persistent-expert", "expert.yaml")
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		t.Fatalf("expert.yaml was not written to disk: %s", filePath)
+	}
+
+	// Load into a new registry
+	r2 := NewRegistry(baseDir)
+	if err := r2.LoadFromDisk(); err != nil {
+		t.Fatalf("LoadFromDisk failed: %v", err)
+	}
+
+	loaded, err := r2.Get("persistent-expert")
+	if err != nil {
+		t.Fatalf("Get after LoadFromDisk failed: %v", err)
+	}
+	if loaded.Name != "persistent-expert" {
+		t.Errorf("got name %q, want %q", loaded.Name, "persistent-expert")
+	}
+	if loaded.Summary != "Survives restarts" {
+		t.Errorf("got summary %q, want %q", loaded.Summary, "Survives restarts")
+	}
+	if loaded.Status != StatusActive {
+		t.Errorf("got status %q, want %q", loaded.Status, StatusActive)
+	}
+	if loaded.Confidence != 0.95 {
+		t.Errorf("got confidence %f, want %f", loaded.Confidence, 0.95)
+	}
+	if len(loaded.ToolAllowlist) != 2 {
+		t.Errorf("got %d tools, want 2", len(loaded.ToolAllowlist))
+	}
+	// Verify timestamps are preserved
+	if !loaded.CreatedAt.Equal(created.CreatedAt) {
+		t.Errorf("CreatedAt mismatch: got %v, want %v", loaded.CreatedAt, created.CreatedAt)
+	}
+}
+
+func TestRegistryPersistenceEmptyDir(t *testing.T) {
+	baseDir := t.TempDir()
+	r := NewRegistry(baseDir)
+
+	if err := r.LoadFromDisk(); err != nil {
+		t.Fatalf("LoadFromDisk on empty dir should not error: %v", err)
+	}
+	if len(r.List()) != 0 {
+		t.Errorf("expected empty list, got %d", len(r.List()))
+	}
+}
+
+func TestRegistrySearch(t *testing.T) {
+	baseDir := t.TempDir()
+	r := NewRegistry(baseDir)
+
+	r.Create(Spec{
+		Name:           "go-linter",
+		Summary:        "Checks Go code style",
+		Description:    "Reviews Go code for lint issues",
+		TriggerPattern: "lint|golang",
+		Status:         StatusActive,
+	})
+	r.Create(Spec{
+		Name:           "python-linter",
+		Summary:        "Checks Python code style",
+		Description:    "Reviews Python code for lint issues",
+		TriggerPattern: "python|flake8",
+		Status:         StatusActive,
+	})
+
+	results := r.Search("go")
+	if len(results) == 0 {
+		t.Fatal("expected search results for 'go'")
+	}
+	// Should match go-linter (name), "Go" in summary, "golang" in trigger
+	found := false
+	for _, s := range results {
+		if s.Name == "go-linter" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("search 'go' should return go-linter")
+	}
+
+	results = r.Search("Python")
+	if len(results) == 0 {
+		t.Fatal("expected search results for 'Python'")
+	}
+	found = false
+	for _, s := range results {
+		if s.Name == "python-linter" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("search 'Python' should return python-linter")
+	}
+}
+
+func TestRegistrySearchArchived(t *testing.T) {
+	baseDir := t.TempDir()
+	r := NewRegistry(baseDir)
+
+	r.Create(Spec{
+		Name:           "old-expert",
+		Summary:        "This is archived",
+		TriggerPattern: "old",
+		Status:         StatusArchived,
+	})
+	r.Create(Spec{
+		Name:           "active-expert",
+		Summary:        "This is active",
+		TriggerPattern: "active",
+		Status:         StatusActive,
+	})
+
+	results := r.Search("expert")
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result (archived excluded), got %d", len(results))
+	}
+	if results[0].Name != "active-expert" {
+		t.Errorf("got %q, want %q", results[0].Name, "active-expert")
+	}
+}
+
+func TestRegistryRecordCall(t *testing.T) {
+	baseDir := t.TempDir()
+	r := NewRegistry(baseDir)
+
+	r.Create(Spec{Name: "call-logger"})
+
+	record := CallRecord{
+		Timestamp:  time.Now(),
+		TaskDesc:   "review PR #42",
+		Mode:       ModeConsult,
+		Success:    true,
+		DurationMs: 1500,
+	}
+	r.RecordCall("call-logger", record)
+
+	// RecordCall does not expose logs publicly in this implementation,
+	// but it should not panic. We verify by calling it without error.
+	r.RecordCall("call-logger", CallRecord{
+		Timestamp:  time.Now(),
+		TaskDesc:   "another call",
+		Mode:       ModeDelegate,
+		Success:    false,
+		DurationMs: 500,
+	})
+}
+
+func TestRegistryUpdateAndDeleteRemovesFile(t *testing.T) {
+	baseDir := t.TempDir()
+	r := NewRegistry(baseDir)
+
+	created := Spec{
+		Name:           "temp-expert",
+		Summary:        "Temporary expert",
+		Description:    "Will be deleted",
+		TriggerPattern: "temp",
+		Status:         StatusDraft,
+	}
+	r.Create(created)
+
+	// Verify file exists
+	filePath := filepath.Join(baseDir, "data", "experts", "temp-expert", "expert.yaml")
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		t.Fatalf("expert.yaml should exist: %s", filePath)
+	}
+
+	// Delete
+	r.Delete("temp-expert")
+
+	// Verify file is gone
+	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
+		t.Errorf("expert.yaml should be deleted, but still exists")
+	}
+}
+
+func TestRegistryUpdateReplacesAllFields(t *testing.T) {
+	baseDir := t.TempDir()
+	r := NewRegistry(baseDir)
+
+	r.Create(Spec{
+		Name:           "keeper",
+		Summary:        "Original",
+		Description:    "Original desc",
+		TriggerPattern: "original",
+		ToolAllowlist:  []string{"read"},
+		SystemPrompt:   "Original prompt",
+		Status:         StatusDraft,
+		Frequency:      10,
+		Confidence:     0.5,
+	})
+
+	// Update replaces ALL mutable fields
+	r.Update("keeper", Spec{
+		Summary:        "Updated",
+		Description:    "Updated desc",
+		TriggerPattern: "updated pattern",
+		ToolAllowlist:  []string{"read", "write"},
+		SystemPrompt:   "Updated prompt",
+		Status:         StatusActive,
+		Frequency:      20,
+		Confidence:     0.9,
+	})
+
+	got, _ := r.Get("keeper")
+	if got.Summary != "Updated" {
+		t.Errorf("got summary %q, want %q", got.Summary, "Updated")
+	}
+	if got.Description != "Updated desc" {
+		t.Errorf("got description %q, want %q", got.Description, "Updated desc")
+	}
+	if len(got.ToolAllowlist) != 2 {
+		t.Errorf("got %d tools, want 2", len(got.ToolAllowlist))
+	}
+	if got.Frequency != 20 {
+		t.Errorf("got frequency %d, want %d", got.Frequency, 20)
+	}
+	if got.Confidence != 0.9 {
+		t.Errorf("got confidence %f, want %f", got.Confidence, 0.9)
+	}
+}
+
+func TestRegistryGetReturnsCopy(t *testing.T) {
+	baseDir := t.TempDir()
+	r := NewRegistry(baseDir)
+
+	r.Create(Spec{
+		Name:   "protected",
+		Status: StatusActive,
+	})
+
+	got1, _ := r.Get("protected")
+	got2, _ := r.Get("protected")
+
+	// Modify the returned slice (should not affect the registry)
+	got1.ToolAllowlist = append(got1.ToolAllowlist, "hacked")
+	if len(r.List()[0].ToolAllowlist) != 0 {
+		t.Error("Get did not return a copy - modifying ToolAllowlist leaked back")
+	}
+
+	// Modify the returned spec (should not affect the second Get)
+	got1.Summary = "hacked"
+	got2again, _ := r.Get("protected")
+	if got2again.Summary != "" {
+		t.Errorf("Get did not return a copy - summary was %q, want empty", got2again.Summary)
+	}
+	_ = got2
+}
