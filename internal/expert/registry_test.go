@@ -486,3 +486,93 @@ func TestRegistryGetReturnsCopy(t *testing.T) {
 	}
 	_ = got2
 }
+
+func TestPromoteToActive(t *testing.T) {
+	dir := t.TempDir()
+	r := NewRegistry(dir)
+	r.Create(Spec{Name: "test", Summary: "test", Status: StatusDraft})
+
+	err := r.Promote("test", StatusActive)
+	if err != nil {
+		t.Fatalf("Promote failed: %v", err)
+	}
+	s, _ := r.Get("test")
+	if s.Status != StatusActive {
+		t.Errorf("expected active, got %s", s.Status)
+	}
+}
+
+func TestPromoteToMature(t *testing.T) {
+	dir := t.TempDir()
+	r := NewRegistry(dir)
+	r.Create(Spec{Name: "test", Summary: "test", Status: StatusActive})
+
+	err := r.Promote("test", StatusMature)
+	if err != nil {
+		t.Fatalf("Promote failed: %v", err)
+	}
+	s, _ := r.Get("test")
+	if s.Status != StatusMature {
+		t.Errorf("expected mature, got %s", s.Status)
+	}
+}
+
+func TestPromoteBackward(t *testing.T) {
+	dir := t.TempDir()
+	r := NewRegistry(dir)
+	r.Create(Spec{Name: "test", Summary: "test", Status: StatusMature})
+
+	err := r.Promote("test", StatusActive)
+	if err == nil {
+		t.Fatal("expected error promoting backward, got nil")
+	}
+}
+
+func TestPromoteNotFound(t *testing.T) {
+	dir := t.TempDir()
+	r := NewRegistry(dir)
+	err := r.Promote("nonexistent", StatusActive)
+	if err == nil {
+		t.Fatal("expected error for nonexistent expert")
+	}
+}
+
+func TestArchiveStale(t *testing.T) {
+	dir := t.TempDir()
+	r := NewRegistry(dir)
+	r.Create(Spec{Name: "old", Summary: "old", Status: StatusMature})
+
+	r.RecordCall("old", CallRecord{
+		Timestamp: time.Now().Add(-100 * 24 * time.Hour),
+		Success:   false,
+	})
+	r.RecordCall("old", CallRecord{
+		Timestamp: time.Now().Add(-50 * 24 * time.Hour),
+		Success:   false,
+	})
+
+	archived := r.ArchiveStale(30)
+	if archived != 0 {
+		t.Errorf("expected 0 archived (no success records), got %d", archived)
+	}
+}
+
+func TestArchiveStaleWithSuccess(t *testing.T) {
+	dir := t.TempDir()
+	r := NewRegistry(dir)
+	r.Create(Spec{Name: "good", Summary: "good", Status: StatusActive})
+
+	r.RecordCall("good", CallRecord{
+		Timestamp: time.Now().Add(-100 * 24 * time.Hour),
+		Success:   true,
+	})
+
+	archived := r.ArchiveStale(30)
+	if archived != 1 {
+		t.Fatalf("expected 1 archived, got %d", archived)
+	}
+	s, _ := r.Get("good")
+	if s.Status != StatusArchived {
+		t.Errorf("expected archived, got %s", s.Status)
+	}
+}

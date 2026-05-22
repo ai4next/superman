@@ -158,6 +158,62 @@ func (r *Registry) Delete(name string) error {
 	return nil
 }
 
+// Promote changes an expert's status with forward-progression validation.
+func (r *Registry) Promote(name string, to Status) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	spec, ok := r.experts[name]
+	if !ok {
+		return fmt.Errorf("expert %q not found", name)
+	}
+
+	order := map[Status]int{
+		StatusDraft:   0,
+		StatusActive:  1,
+		StatusMature:  2,
+		StatusArchived: 3,
+	}
+	if order[to] <= order[spec.Status] {
+		return fmt.Errorf("cannot promote from %s to %s", spec.Status, to)
+	}
+
+	spec.Status = to
+	spec.UpdatedAt = time.Now()
+	return r.persistLocked(spec)
+}
+
+// ArchiveStale archives experts that haven't been successfully used in maxAgeDays.
+func (r *Registry) ArchiveStale(maxAgeDays int) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	cutoff := time.Now().Add(-time.Duration(maxAgeDays) * 24 * time.Hour)
+	var archived int
+	for name, spec := range r.experts {
+		if spec.Status == StatusArchived {
+			continue
+		}
+		logs := r.callLogs[name]
+		if len(logs) == 0 {
+			continue
+		}
+		lastSuccess := time.Time{}
+		for _, l := range logs {
+			if l.Success && l.Timestamp.After(lastSuccess) {
+				lastSuccess = l.Timestamp
+			}
+		}
+		if !lastSuccess.IsZero() && lastSuccess.Before(cutoff) {
+			spec.Status = StatusArchived
+			spec.UpdatedAt = time.Now()
+			r.persistLocked(spec)
+			archived++
+		}
+	}
+	return archived
+}
+
 // Search performs keyword matching against name, summary, trigger pattern,
 // and description. Only returns active and mature experts (excludes archived).
 func (r *Registry) Search(query string) []*Spec {
