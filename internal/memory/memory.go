@@ -162,7 +162,6 @@ func (s *Service) Store(ctx context.Context, content, category string) (*Entry, 
 
 	// Persist to disk
 	if s.memoryDir != "" {
-		os.MkdirAll(s.memoryDir, 0755)
 		l2Path := filepath.Join(s.memoryDir, "l2_entries.jsonl")
 		f, err := os.OpenFile(l2Path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
@@ -241,7 +240,6 @@ func (s *Service) Archive(ctx context.Context, olderThan time.Duration) (int, er
 	}
 
 	if archived > 0 && s.memoryDir != "" {
-		os.MkdirAll(s.memoryDir, 0755)
 		l3Path := filepath.Join(s.memoryDir, "l3_archive.jsonl")
 		f, err := os.OpenFile(l3Path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {

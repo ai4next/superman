@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"log"
 	"os"
+	"path/filepath"
 
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
@@ -55,23 +56,24 @@ func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, memSearcher 
 
 	// Hook manager plugin
 	var extraPlugins []*plugin.Plugin
-	hookMgr, err := hook.NewManager("hooks")
+	hookMgr, err := hook.NewManager(filepath.Join(cfg.Dir, "hooks"))
 	if err != nil {
 		log.Printf("[agent] hook manager: %v", err)
 	} else {
 		extraPlugins = append(extraPlugins, hookMgr.Plugin())
 	}
 
-	// Create SkillToolset from skills/ directory
+	// Create SkillToolset from cfg.Dir/skills directory
 	var agentToolsets []tool.Toolset
-	skillFS := os.DirFS("skills")
+	skillsDir := filepath.Join(cfg.Dir, "skills")
+	skillFS := os.DirFS(skillsDir)
 	skillSource := skill.NewFileSystemSource(skillFS)
 	skillTS, err := skilltoolset.New(context.Background(), skilltoolset.Config{Source: skillSource})
 	if err != nil {
 		log.Printf("[agent] skill toolset: %v", err)
 	} else {
 		agentToolsets = append(agentToolsets, skillTS)
-		log.Printf("[agent] skill toolset loaded")
+		log.Printf("[agent] skill toolset loaded from %s", skillsDir)
 	}
 
 	a, err := llmagent.New(llmagent.Config{

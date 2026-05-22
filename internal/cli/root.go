@@ -1,6 +1,10 @@
 package cli
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+
 	"github.com/spf13/cobra"
 
 	"github.com/ai4next/superman/internal/config"
@@ -13,17 +17,43 @@ func Execute() error {
 	return rootCmd.Execute()
 }
 
+// ensureDirs creates all runtime directories required by the agent.
+func ensureDirs(cfg *config.Config) error {
+	dirs := []string{
+		cfg.Dir,
+		filepath.Join(cfg.Dir, "skills"),
+		filepath.Join(cfg.Dir, "hooks"),
+		filepath.Join(cfg.Dir, "internal", "memory", "templates"),
+		filepath.Join(cfg.Dir, "data", "experts"),
+		cfg.Tools.CodeRun.Workspace,
+		cfg.Session.HistoryPath,
+		cfg.Memory.L2.Dir,
+	}
+	for _, d := range dirs {
+		if d == "" {
+			continue
+		}
+		if err := os.MkdirAll(d, 0755); err != nil {
+			return fmt.Errorf("create runtime dir %s: %w", d, err)
+		}
+	}
+	return nil
+}
+
 var rootCmd = &cobra.Command{
 	Use:   "superman",
 	Short: "Superman - general-purpose autonomous AI agent",
 	Long: `Superman is a general-purpose autonomous AI agent built with Google ADK.
-It supports multiple model providers, 9 built-in tools, layered memory,
-TUI interface, and autonomous reflection modes.`,
+	It supports multiple model providers, 9 built-in tools, layered memory,
+	TUI interface, and autonomous reflection modes.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		configPath, _ := cmd.Flags().GetString("config")
 		var err error
 		cfg, err = config.Load(configPath)
-		return err
+		if err != nil {
+			return err
+		}
+		return ensureDirs(cfg)
 	},
 	RunE: RunServe,
 }

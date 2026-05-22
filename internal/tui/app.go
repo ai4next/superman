@@ -308,5 +308,7 @@ func Run(ctx context.Context, a agent.Agent, cfg *config.Config, pluginCfg runne
 	cw := &cursorWriter{out: os.Stdout, model: m}
 	p := tea.NewProgram(m, tea.WithOutput(cw), tea.WithAltScreen())
 	_, err := p.Run()
+	// Reset cursor style to default (block) after TUI exits
+	fmt.Fprint(os.Stdout, "\033[0 q")
 	return err
 }

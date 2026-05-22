@@ -4,6 +4,7 @@ import "time"
 
 // Config is the top-level configuration for the Superman agent.
 type Config struct {
+	Dir      string         `mapstructure:"dir"`
 	Model    ModelConfig    `mapstructure:"model"`
 	Server   ServerConfig   `mapstructure:"server"`
 	Tools    ToolsConfig    `mapstructure:"tools"`
@@ -11,7 +12,7 @@ type Config struct {
 	Plugins  []PluginConfig `mapstructure:"plugins"`
 	Session  SessionConfig  `mapstructure:"session"`
 	Reflect  ReflectConfig  `mapstructure:"reflect"`
-		Expert   ExpertConfig   `mapstructure:"expert"`
+	Expert   ExpertConfig   `mapstructure:"expert"`
 }
 
 // ModelConfig configures the LLM provider.

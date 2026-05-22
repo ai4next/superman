@@ -14,6 +14,15 @@ var configureCmd = &cobra.Command{
 	Long:  "Display current configuration or create config.yaml from the example template.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		configPath := "config.yaml"
+		homeDir, _ := os.UserHomeDir()
+		if homeDir != "" {
+			if _, err := os.Stat(configPath); os.IsNotExist(err) {
+				smPath := filepath.Join(homeDir, ".sm", "config.yaml")
+				if _, err := os.Stat(smPath); err == nil {
+					configPath = smPath
+				}
+			}
+		}
 
 		// If no config.yaml exists, offer to create one
 		if _, err := os.Stat(configPath); os.IsNotExist(err) {

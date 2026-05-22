@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
@@ -22,10 +23,12 @@ func Load(configPath string) (*Config, error) {
 		v.SetConfigName("config")
 		v.SetConfigType("yaml")
 		v.AddConfigPath(".")
-		v.AddConfigPath("$HOME/.superman")
+		if home, _ := os.UserHomeDir(); home != "" {
+			v.AddConfigPath(filepath.Join(home, ".sm"))
+		}
 	}
 
-	v.SetEnvPrefix("SUPERMAN")
+	v.SetEnvPrefix("SM")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
@@ -67,6 +70,9 @@ func stringToDurationHook() mapstructure.DecodeHookFunc {
 
 // applyDefaults fills in sensible defaults for any zero-value fields.
 func applyDefaults(cfg *Config) {
+	if cfg.Dir == "" {
+		cfg.Dir = os.ExpandEnv("$HOME/.sm")
+	}
 	if cfg.Model.Provider == "" {
 		cfg.Model.Provider = "openai"
 	}

@@ -18,7 +18,6 @@ type Manager struct {
 }
 
 func New(service session.Service, historyPath string, maxTurns int) *Manager {
-	os.MkdirAll(historyPath, 0755)
 	return &Manager{
 		service:     service,
 		historyPath: historyPath,

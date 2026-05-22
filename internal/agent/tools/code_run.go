@@ -78,7 +78,6 @@ func runCode(deps Dependencies, input codeRunInput) (codeRunOutput, error) {
 		}
 	}
 
-	os.MkdirAll(deps.Workspace, 0755)
 
 	return codeRunOutput{
 		Stdout:   stdout.String(),
