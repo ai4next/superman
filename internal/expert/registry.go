@@ -19,7 +19,7 @@ type Registry struct {
 	baseDir  string
 	experts  map[string]*Spec
 	callLogs map[string][]CallRecord
-		idx      *invertedIndex
+	idx      *invertedIndex
 }
 
 // NewRegistry creates a registry rooted at baseDir/data/experts/.
@@ -177,9 +177,9 @@ func (r *Registry) Promote(name string, to Status) error {
 	}
 
 	order := map[Status]int{
-		StatusDraft:   0,
-		StatusActive:  1,
-		StatusMature:  2,
+		StatusDraft:    0,
+		StatusActive:   1,
+		StatusMature:   2,
 		StatusArchived: 3,
 	}
 	if order[to] <= order[spec.Status] {
@@ -343,9 +343,9 @@ func copySpec(s *Spec) *Spec {
 
 // invertedIndex provides TF-scored full-text search over expert documents.
 type invertedIndex struct {
-	docIDs   map[string]int    // expert name → internal doc ID
-	postings map[string][]int  // term → list of doc IDs
-	docs     map[int]string    // doc ID → expert name
+	docIDs   map[string]int   // expert name → internal doc ID
+	postings map[string][]int // term → list of doc IDs
+	docs     map[int]string   // doc ID → expert name
 	nextID   int
 }
 

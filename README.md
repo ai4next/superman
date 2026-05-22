@@ -195,6 +195,33 @@ superman/
 └── go.sum
 ```
 
+## Runtime Directory
+
+All runtime data is stored under `cfg.Dir` (`~/.sm/` by default), automatically created on first run:
+
+```
+~/.sm/                                    # cfg.Dir (default: $HOME/.sm)
+├── config.yaml                           # User configuration (created by `sm configure`)
+├── tui.log                               # TUI runtime log (redirected for display safety)
+├── hooks/                                # Hook event scripts (11 lifecycle events)
+├── skills/                               # Skill definitions (SKILL.md)
+├── data/
+│   └── experts/                          # Expert YAML definitions (auto-managed)
+├── memory/                               # Layered memory persistence
+│   ├── l0/                               # L0 SOP rule templates (*.md)
+│   ├── l1/
+│   │   └── index.txt                     # L1 hot memory index (auto-rebuilt)
+│   ├── l2/
+│   │   └── entries.jsonl                 # L2 persistent working memory
+│   ├── l3/
+│   │   └── archive.jsonl                 # L3 long-term archived memory
+│   ├── l4/                               # L4 compressed session archives
+│   └── candidates/                       # Evolution candidates (review-only)
+│       ├── memory.jsonl
+│       ├── sop/
+│       └── experts/
+```
+
 ## Build
 
 ```bash

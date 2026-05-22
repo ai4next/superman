@@ -4,15 +4,15 @@ import "time"
 
 // Config is the top-level configuration for the Superman agent.
 type Config struct {
-	Dir      string         `mapstructure:"dir"`
-	Model    ModelConfig    `mapstructure:"model"`
-	Server   ServerConfig   `mapstructure:"server"`
-	Tools    ToolsConfig    `mapstructure:"tools"`
-	Memory   MemoryConfig   `mapstructure:"memory"`
-	Plugins  []PluginConfig `mapstructure:"plugins"`
-	Session  SessionConfig  `mapstructure:"session"`
-	Reflect  ReflectConfig  `mapstructure:"reflect"`
-	Expert   ExpertConfig   `mapstructure:"expert"`
+	Dir     string         `mapstructure:"dir"`
+	Model   ModelConfig    `mapstructure:"model"`
+	Server  ServerConfig   `mapstructure:"server"`
+	Tools   ToolsConfig    `mapstructure:"tools"`
+	Memory  MemoryConfig   `mapstructure:"memory"`
+	Plugins []PluginConfig `mapstructure:"plugins"`
+	Session SessionConfig  `mapstructure:"session"`
+	Reflect ReflectConfig  `mapstructure:"reflect"`
+	Expert  ExpertConfig   `mapstructure:"expert"`
 }
 
 // ModelConfig configures the LLM provider.
@@ -97,16 +97,16 @@ type LongTermMemoryConfig struct {
 
 // MemoryConfig configures the memory subsystem.
 type MemoryConfig struct {
-	L0 L0Config  `mapstructure:"l0"`
-	L1 L1Config  `mapstructure:"l1"`
-	L2 L2Config  `mapstructure:"l2"`
-	L3 L3Config  `mapstructure:"l3"`
-	L4 L4Config  `mapstructure:"l4"`
+	L0        L0Config        `mapstructure:"l0"`
+	L1        L1Config        `mapstructure:"l1"`
+	L2        L2Config        `mapstructure:"l2"`
+	L3        L3Config        `mapstructure:"l3"`
+	L4        L4Config        `mapstructure:"l4"`
+	Evolution EvolutionConfig `mapstructure:"evolution"`
 }
 
 // L0Config is for the Standard Operating Procedures memory level.
 type L0Config struct {
-	SOPDir string `mapstructure:"sop_dir"`
 }
 
 // L1Config is for short-term agent memory.
@@ -116,7 +116,6 @@ type L1Config struct {
 
 // L2Config is for persistent working memory storage.
 type L2Config struct {
-	Dir string `mapstructure:"dir"`
 }
 
 // L3Config is for long-term archived memory.
@@ -126,9 +125,13 @@ type L3Config struct {
 
 // L4Config is for historical session archiving.
 type L4Config struct {
-	Enabled        bool     `mapstructure:"enabled"`
 	ArchiveInterval Duration `mapstructure:"archive_interval"`
-	SessionTTL     Duration `mapstructure:"session_ttl"`
+	SessionTTL      Duration `mapstructure:"session_ttl"`
+}
+
+// EvolutionConfig configures background memory evolution candidate generation.
+type EvolutionConfig struct {
+	Interval Duration `mapstructure:"interval"`
 }
 
 // PluginConfig configures an individual plugin.

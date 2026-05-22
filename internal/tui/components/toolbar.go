@@ -10,10 +10,11 @@ import (
 )
 
 type ToolbarData struct {
-	ModelName  string
-	CWD        string
-	GitBranch  string
-	ContextPct float64
+	ModelName    string
+	CWD          string
+	GitBranch    string
+	ContextPct   float64
+	ScrollOffset int // 0 = at bottom (newest), >0 = scrolled up
 }
 
 func RenderToolbar(data ToolbarData, width int) string {
@@ -23,8 +24,14 @@ func RenderToolbar(data ToolbarData, width int) string {
 	}
 
 	right := ""
+	if data.ScrollOffset > 0 {
+		right = fmt.Sprintf("↑ %d", data.ScrollOffset)
+	}
 	if data.ContextPct > 0 {
-		right = fmt.Sprintf("context: %.1f%%", data.ContextPct)
+		if right != "" {
+			right += "  "
+		}
+		right += fmt.Sprintf("ctx: %.1f%%", data.ContextPct)
 	}
 
 	spacer := max(0, width-lipgloss.Width(left)-lipgloss.Width(right))

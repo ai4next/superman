@@ -54,6 +54,8 @@ func TestDurationRoundtrip(t *testing.T) {
 
 func TestLoad_Defaults(t *testing.T) {
 	// Load with no config file — should use defaults
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatalf("Load() with no file: %v", err)

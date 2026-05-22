@@ -76,10 +76,10 @@ func (w *IdleWatcher) Stop() {
 func (w *IdleWatcher) execute(ctx context.Context) {
 	sessionService := session.InMemoryService()
 	r, err := runner.New(runner.Config{
-		Agent:              w.agent,
-		AppName:            w.cfg.Session.AppName,
-		SessionService:     sessionService,
-		AutoCreateSession:  true,
+		Agent:             w.agent,
+		AppName:           w.cfg.Session.AppName,
+		SessionService:    sessionService,
+		AutoCreateSession: true,
 	})
 	if err != nil {
 		log.Printf("[reflect] runner creation failed: %v", err)

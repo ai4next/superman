@@ -37,12 +37,15 @@ tools:
     enabled: true
 
 memory:
-  l0:
-    sop_dir: ./internal/memory/templates
   l1:
     max_entries: 50
   l3:
     archive_interval: 24h
+  l4:
+    archive_interval: 6h
+    session_ttl: 48h
+  evolution:
+    interval: 30m
 
 plugins:
   - name: memory_sync

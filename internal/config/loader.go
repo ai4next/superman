@@ -28,9 +28,13 @@ func Load(configPath string) (*Config, error) {
 		}
 	}
 
-	v.SetEnvPrefix("SM")
+	v.SetEnvPrefix("SUPERMAN")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
+	v.SetDefault("memory.l4.archive_interval", Duration(6*time.Hour))
+	v.SetDefault("memory.l4.session_ttl", Duration(48*time.Hour))
+	v.SetDefault("memory.evolution.interval", Duration(30*time.Minute))
+	v.SetDefault("memory.l3.archive_interval", Duration(24*time.Hour))
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
@@ -45,6 +49,7 @@ func Load(configPath string) (*Config, error) {
 
 	// Expand ${VAR} references in api_key
 	cfg.Model.APIKey = os.ExpandEnv(cfg.Model.APIKey)
+	expandPaths(&cfg)
 
 	applyDefaults(&cfg)
 	return &cfg, nil
@@ -66,6 +71,14 @@ func stringToDurationHook() mapstructure.DecodeHookFunc {
 		}
 		return Duration(d), nil
 	}
+}
+
+func expandPaths(cfg *Config) {
+	cfg.Dir = os.ExpandEnv(cfg.Dir)
+	cfg.Tools.CodeRun.Workspace = os.ExpandEnv(cfg.Tools.CodeRun.Workspace)
+	cfg.Session.HistoryPath = os.ExpandEnv(cfg.Session.HistoryPath)
+	cfg.Reflect.Scheduler.TasksDir = os.ExpandEnv(cfg.Reflect.Scheduler.TasksDir)
+	cfg.Expert.Dir = os.ExpandEnv(cfg.Expert.Dir)
 }
 
 // applyDefaults fills in sensible defaults for any zero-value fields.
@@ -97,14 +110,20 @@ func applyDefaults(cfg *Config) {
 	if cfg.Tools.WebScan.Timeout == 0 {
 		cfg.Tools.WebScan.Timeout = Duration(15 * time.Second)
 	}
-	if cfg.Memory.L0.SOPDir == "" {
-		cfg.Memory.L0.SOPDir = "./internal/memory/templates"
-	}
 	if cfg.Memory.L1.MaxEntries == 0 {
 		cfg.Memory.L1.MaxEntries = 50
 	}
 	if cfg.Memory.L3.ArchiveInterval == 0 {
 		cfg.Memory.L3.ArchiveInterval = Duration(24 * time.Hour)
+	}
+	if cfg.Memory.L4.ArchiveInterval == 0 {
+		cfg.Memory.L4.ArchiveInterval = Duration(6 * time.Hour)
+	}
+	if cfg.Memory.L4.SessionTTL == 0 {
+		cfg.Memory.L4.SessionTTL = Duration(48 * time.Hour)
+	}
+	if cfg.Memory.Evolution.Interval == 0 {
+		cfg.Memory.Evolution.Interval = Duration(30 * time.Minute)
 	}
 	if cfg.Session.MaxTurns == 0 {
 		cfg.Session.MaxTurns = 75

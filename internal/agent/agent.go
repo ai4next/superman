@@ -7,13 +7,14 @@ import (
 	"os"
 	"path/filepath"
 
-	"google.golang.org/adk/agent"
+	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/model"
 	"google.golang.org/adk/plugin"
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/skilltoolset"
 	"google.golang.org/adk/tool/skilltoolset/skill"
+	"google.golang.org/genai"
 
 	"github.com/ai4next/superman/internal/agent/tools"
 	"github.com/ai4next/superman/internal/config"
@@ -27,7 +28,7 @@ var systemPrompt string
 
 // New creates a new Superman agent with all registered tools, optional SOP rules,
 // and L1 memory index injected into the system prompt.
-func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, memSearcher tools.MemorySearcher, sopContent string, expertRegistry *expert.Registry, delegateRunner tools.DelegateRunner) (agent.Agent, []*plugin.Plugin, error) {
+func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, memSearcher tools.MemorySearcher, sopContent string, expertRegistry *expert.Registry, delegateRunner tools.DelegateRunner) (adkagent.Agent, []*plugin.Plugin, error) {
 	deps := tools.Dependencies{
 		Config:         cfg,
 		Workspace:      cfg.Tools.CodeRun.Workspace,
@@ -41,17 +42,32 @@ func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, memSearcher 
 
 	instruction := systemPrompt
 
-	// Inject L1 memory index into the system prompt
-	if memSvc != nil {
-		l1Content := memSvc.GetL1Content()
-		if l1Content != "" {
-			instruction += "\n\n## Memory Index\n" + l1Content
-		}
-	}
-
 	// Inject L0 SOP rules into the system prompt
 	if sopContent != "" {
 		instruction += "\n\n## SOP Rules\n" + sopContent
+	}
+
+	var beforeModelCallbacks []llmagent.BeforeModelCallback
+	if memSvc != nil {
+		beforeModelCallbacks = append(beforeModelCallbacks, func(ctx adkagent.CallbackContext, req *model.LLMRequest) (*model.LLMResponse, error) {
+			l1Content := memSvc.GetL1Content()
+			if l1Content == "" {
+				return nil, nil
+			}
+			if req.Config == nil {
+				req.Config = &genai.GenerateContentConfig{}
+			}
+			if req.Config.SystemInstruction == nil {
+				req.Config.SystemInstruction = genai.NewContentFromText(l1Content, genai.RoleUser)
+				return nil, nil
+			}
+			if len(req.Config.SystemInstruction.Parts) > 0 && req.Config.SystemInstruction.Parts[len(req.Config.SystemInstruction.Parts)-1].Text != "" {
+				req.Config.SystemInstruction.Parts[len(req.Config.SystemInstruction.Parts)-1].Text += "\n\n" + l1Content
+				return nil, nil
+			}
+			req.Config.SystemInstruction.Parts = append(req.Config.SystemInstruction.Parts, genai.NewPartFromText(l1Content))
+			return nil, nil
+		})
 	}
 
 	// Hook manager plugin
@@ -77,12 +93,13 @@ func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, memSearcher 
 	}
 
 	a, err := llmagent.New(llmagent.Config{
-		Name:        "superman",
-		Model:       llm,
-		Description: "Superman - general-purpose autonomous AI assistant",
-		Instruction: instruction,
-		Tools:       toolList,
-		Toolsets:    agentToolsets,
+		Name:                 "superman",
+		Model:                llm,
+		Description:          "Superman - general-purpose autonomous AI assistant",
+		Instruction:          instruction,
+		Tools:                toolList,
+		Toolsets:             agentToolsets,
+		BeforeModelCallbacks: beforeModelCallbacks,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -97,6 +114,6 @@ func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, memSearcher 
 }
 
 // NewWithoutMemory creates an agent without a memory service (for simple CLI usage).
-func NewWithoutMemory(llm model.LLM, cfg *config.Config) (agent.Agent, []*plugin.Plugin, error) {
+func NewWithoutMemory(llm model.LLM, cfg *config.Config) (adkagent.Agent, []*plugin.Plugin, error) {
 	return New(llm, cfg, nil, nil, "", nil, nil)
 }

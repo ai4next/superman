@@ -78,7 +78,6 @@ func runCode(deps Dependencies, input codeRunInput) (codeRunOutput, error) {
 		}
 	}
 
-
 	return codeRunOutput{
 		Stdout:   stdout.String(),
 		Stderr:   stderr.String(),

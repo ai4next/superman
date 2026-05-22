@@ -23,7 +23,7 @@ func ArchiveSessions(ctx context.Context, sessionDir, memDir string, olderThan t
 	}
 
 	cutoff := time.Now().Add(-olderThan)
-	l4Dir := filepath.Join(memDir, "l4_archive")
+	l4Dir := filepath.Join(memDir, "l4")
 	os.MkdirAll(l4Dir, 0755)
 
 	var archived int

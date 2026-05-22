@@ -23,10 +23,110 @@ func TestService_StoreAndGetL1(t *testing.T) {
 	if entry.Layer != 2 {
 		t.Errorf("layer = %d, want 2", entry.Layer)
 	}
+	if entry.Category != "preference" {
+		t.Errorf("category = %q, want preference", entry.Category)
+	}
+	if entry.Scope != "user" {
+		t.Errorf("scope = %q, want user", entry.Scope)
+	}
+	if entry.Source != "long_term_memory" {
+		t.Errorf("source = %q, want long_term_memory", entry.Source)
+	}
+	if entry.Importance == 0 || entry.Confidence == 0 {
+		t.Errorf("expected importance/confidence metadata, got %.2f/%.2f", entry.Importance, entry.Confidence)
+	}
 
 	idx := s.GetL1Index()
 	if len(idx) != 1 {
 		t.Fatalf("GetL1Index returned %d entries, want 1", len(idx))
+	}
+}
+
+func TestService_DeduplicatesSimilarMemory(t *testing.T) {
+	dir := t.TempDir()
+	s := New(10, dir)
+	ctx := context.Background()
+
+	first, err := s.Store(ctx, "The user prefers Go for backend services", "preference")
+	if err != nil {
+		t.Fatalf("Store first: %v", err)
+	}
+	second, err := s.Store(ctx, "The user prefers Go for backend services", "preference")
+	if err != nil {
+		t.Fatalf("Store duplicate: %v", err)
+	}
+	if second.ID != first.ID {
+		t.Fatalf("duplicate created new ID %s, want %s", second.ID, first.ID)
+	}
+	if second.AccessCount != 1 {
+		t.Errorf("duplicate should increase access count, got %d", second.AccessCount)
+	}
+	if got := len(s.GetL2Entries()); got != 1 {
+		t.Errorf("L2 entries = %d, want 1", got)
+	}
+}
+
+func TestService_ConflictSupersedesOldMemory(t *testing.T) {
+	dir := t.TempDir()
+	s := New(10, dir)
+	ctx := context.Background()
+
+	oldEntry, err := s.Store(ctx, "The user prefers Python for backend services", "preference")
+	if err != nil {
+		t.Fatalf("Store old: %v", err)
+	}
+	newEntry, err := s.Store(ctx, "The user now prefers Go for backend services instead", "preference")
+	if err != nil {
+		t.Fatalf("Store new: %v", err)
+	}
+	if len(newEntry.Supersedes) != 1 || newEntry.Supersedes[0] != oldEntry.ID {
+		t.Fatalf("Supersedes = %#v, want [%s]", newEntry.Supersedes, oldEntry.ID)
+	}
+	if got := len(s.GetL2Entries()); got != 1 {
+		t.Errorf("active L2 entries = %d, want 1", got)
+	}
+
+	results, err := s.Search(ctx, "backend services")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) == 0 || results[0].ID != newEntry.ID {
+		t.Fatalf("top search result = %#v, want new entry first", results)
+	}
+}
+
+func TestService_SearchUpdatesAccessMetadata(t *testing.T) {
+	dir := t.TempDir()
+	s := New(10, dir)
+	ctx := context.Background()
+
+	if _, err := s.Store(ctx, "User prefers Go for backend APIs", "preference"); err != nil {
+		t.Fatalf("Store: %v", err)
+	}
+	results, err := s.Search(ctx, "backend")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results = %d, want 1", len(results))
+	}
+	if results[0].AccessCount != 1 {
+		t.Errorf("access_count = %d, want 1", results[0].AccessCount)
+	}
+	if results[0].LastAccessedAt.IsZero() {
+		t.Error("last_accessed_at should be set")
+	}
+
+	s2 := New(10, dir)
+	if err := s2.LoadFromDisk(); err != nil {
+		t.Fatalf("LoadFromDisk: %v", err)
+	}
+	reloaded, err := s2.Search(ctx, "backend")
+	if err != nil {
+		t.Fatalf("Search after reload: %v", err)
+	}
+	if len(reloaded) != 1 || reloaded[0].AccessCount < 2 {
+		t.Fatalf("access metadata was not persisted, got %#v", reloaded)
 	}
 }
 
@@ -231,13 +331,13 @@ func TestArchiveSessions(t *testing.T) {
 		t.Errorf("archived %d sessions, want 1", count)
 	}
 
-	l4Dir := filepath.Join(memDir, "l4_archive")
+	l4Dir := filepath.Join(memDir, "l4")
 	entries, err := os.ReadDir(l4Dir)
 	if err != nil {
 		t.Fatalf("read l4_archive: %v", err)
 	}
 	if len(entries) != 1 {
-		t.Errorf("l4_archive has %d files, want 1", len(entries))
+		t.Errorf("l4 has %d files, want 1", len(entries))
 	}
 
 	if _, err := os.Stat(sessionPath); !os.IsNotExist(err) {
@@ -248,5 +348,47 @@ func TestArchiveSessions(t *testing.T) {
 	data, _ := os.ReadFile(archivePath)
 	if !strings.Contains(string(data), "hello") {
 		t.Errorf("archive should contain user message context")
+	}
+}
+
+func TestService_EvolveWritesCandidatesOnly(t *testing.T) {
+	dir := t.TempDir()
+	candidateDir := filepath.Join(dir, "candidates")
+	s := New(10, dir)
+	ctx := context.Background()
+
+	if _, err := s.Store(ctx, "User workflow is to read related tests before editing code", "workflow"); err != nil {
+		t.Fatalf("Store workflow 1: %v", err)
+	}
+	if _, err := s.Store(ctx, "User workflow is to run targeted tests after editing code", "workflow"); err != nil {
+		t.Fatalf("Store workflow 2: %v", err)
+	}
+	if _, err := s.Store(ctx, "User prefers Python for backend services", "preference"); err != nil {
+		t.Fatalf("Store old preference: %v", err)
+	}
+	if _, err := s.Store(ctx, "User now prefers Go for backend services instead", "preference"); err != nil {
+		t.Fatalf("Store new preference: %v", err)
+	}
+
+	before := len(s.GetL2Entries())
+	candidates, err := s.Evolve(ctx, candidateDir)
+	if err != nil {
+		t.Fatalf("Evolve: %v", err)
+	}
+	after := len(s.GetL2Entries())
+	if before != after {
+		t.Fatalf("Evolve changed official L2 entries: before=%d after=%d", before, after)
+	}
+	if len(candidates) == 0 {
+		t.Fatal("expected memory candidates")
+	}
+	if _, err := os.Stat(filepath.Join(candidateDir, "memory.jsonl")); err != nil {
+		t.Fatalf("memory candidates not written: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(candidateDir, "sop", "workflow-memory-candidate.md")); err != nil {
+		t.Fatalf("SOP candidate not written: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(candidateDir, "experts")); err != nil {
+		t.Fatalf("experts candidate dir not created: %v", err)
 	}
 }

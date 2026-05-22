@@ -3,7 +3,10 @@ package tui
 import (
 	"context"
 	"fmt"
+	"io"
+	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -38,6 +41,7 @@ type Model struct {
 	modelName      string
 	cursorRow      int
 	cursorCol      int
+	scrollOffset   int // lines from bottom (0 = newest content visible)
 }
 
 func New(a agent.Agent, cfg *config.Config, pluginCfg runner.PluginConfig, sessSvc session.Service) *Model {
@@ -67,6 +71,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if m.input != "" && !m.running {
 				return m.processInput()
+			}
+			// Empty enter snaps back to bottom when scrolled up
+			if m.scrollOffset > 0 {
+				m.scrollOffset = 0
 			}
 		case "backspace":
 			if msg.Alt {
@@ -108,6 +116,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cursorPos = 0
 		case "end":
 			m.cursorPos = len([]rune(m.input))
+		case "pgup", "ctrl+u":
+			step := max(1, (m.height-2)/2)
+			m.scrollOffset += step
+		case "pgdown", "ctrl+d":
+			if m.scrollOffset > 0 {
+				step := max(1, (m.height-2)/2)
+				m.scrollOffset -= step
+				if m.scrollOffset < 0 {
+					m.scrollOffset = 0
+				}
+			}
 		default:
 			if !msg.Alt && len(msg.Runes) > 0 {
 				r := string(msg.Runes)
@@ -119,6 +138,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+	case tea.MouseMsg:
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			step := max(1, (m.height-2)/2)
+			m.scrollOffset += step
+		case tea.MouseButtonWheelDown:
+			if m.scrollOffset > 0 {
+				step := max(1, (m.height-2)/2)
+				m.scrollOffset -= step
+				if m.scrollOffset < 0 {
+					m.scrollOffset = 0
+				}
+			}
+		}
 	}
 	return m, nil
 }
@@ -180,33 +213,51 @@ func (m *Model) View() string {
 		return "Loading..."
 	}
 
-	var above string
+	var chatContent string
 	var inputLine string
+	cwd, _ := os.Getwd()
+	inputLine, m.cursorCol = components.RenderInputLine(m.input, m.cursorPos, m.width)
 
 	if m.showWelcome && len(m.messages) == 0 {
-		cwd, _ := os.Getwd()
 		welcome := components.RenderWelcome(m.modelName, cwd, m.sessionID)
-		inputLine, m.cursorCol = components.RenderInputLine(m.input, m.cursorPos, m.width)
 		toolbar := components.RenderToolbar(components.ToolbarData{
 			ModelName: m.modelName,
 			CWD:       cwd,
 		}, m.width)
-		above = lipgloss.JoinVertical(lipgloss.Left, welcome, "", toolbar)
+		chatContent = lipgloss.JoinVertical(lipgloss.Left, welcome, "", toolbar)
 	} else {
-		chatContent := components.RenderChat(m.messages, m.width)
-		inputLine, m.cursorCol = components.RenderInputLine(m.input, m.cursorPos, m.width)
+		chatContent = components.RenderChat(m.messages, m.width)
 		toolbar := components.RenderToolbar(components.ToolbarData{
-			ModelName: m.modelName,
+			ModelName:    m.modelName,
+			ScrollOffset: m.scrollOffset,
 		}, m.width)
-		above = lipgloss.JoinVertical(lipgloss.Left, chatContent, toolbar)
+		chatContent = lipgloss.JoinVertical(lipgloss.Left, chatContent, toolbar)
 	}
 
-	m.cursorRow = len(strings.Split(above, "\n")) + 1
-	return above + "\n" + inputLine
+	// Clip content to fit terminal height, applying scrollOffset
+	// Terminal has m.height lines total; input line takes 1 line
+	availHeight := m.height - 1
+	chatLines := strings.Split(chatContent, "\n")
+	if len(chatLines) > availHeight {
+		maxOffset := len(chatLines) - availHeight
+		if m.scrollOffset > maxOffset {
+			m.scrollOffset = maxOffset
+		}
+		startLine := max(0, len(chatLines)-availHeight-m.scrollOffset)
+		chatContent = strings.Join(chatLines[startLine:startLine+availHeight], "\n")
+	} else {
+		m.scrollOffset = 0
+	}
+
+	// cursor is always on the last line (input line)
+	fullOutput := chatContent + "\n" + inputLine
+	m.cursorRow = len(strings.Split(fullOutput, "\n"))
+	return fullOutput
 }
 
 func (m *Model) processInput() (tea.Model, tea.Cmd) {
 	m.showWelcome = false
+	m.scrollOffset = 0 // snap to bottom on new input
 	prompt := strings.TrimSpace(m.input)
 	m.input = ""
 	m.cursorPos = 0
@@ -233,11 +284,11 @@ func (m *Model) processInput() (tea.Model, tea.Cmd) {
 	if m.runner == nil {
 		var err error
 		m.runner, err = runner.New(runner.Config{
-			Agent:              m.agent,
-			AppName:            m.cfg.Session.AppName,
-			SessionService:     m.sessionService,
-			PluginConfig:       m.pluginCfg,
-			AutoCreateSession:  true,
+			Agent:             m.agent,
+			AppName:           m.cfg.Session.AppName,
+			SessionService:    m.sessionService,
+			PluginConfig:      m.pluginCfg,
+			AutoCreateSession: true,
 		})
 		if err != nil {
 			m.messages = append(m.messages, components.Message{
@@ -299,15 +350,27 @@ func (w *cursorWriter) Write(data []byte) (int, error) {
 	return n, err
 }
 
-func (w *cursorWriter) Read(p []byte) (int, error)  { return w.out.Read(p) }
-func (w *cursorWriter) Close() error                 { return nil }
-func (w *cursorWriter) Fd() uintptr                  { return w.out.Fd() }
+func (w *cursorWriter) Read(p []byte) (int, error) { return w.out.Read(p) }
+func (w *cursorWriter) Close() error               { return nil }
+func (w *cursorWriter) Fd() uintptr                { return w.out.Fd() }
 
 func Run(ctx context.Context, a agent.Agent, cfg *config.Config, pluginCfg runner.PluginConfig, sessSvc session.Service) error {
+	// Redirect log output to a file so plugin/subsystem logging doesn't
+	// corrupt the TUI display (stderr writes go through the alt screen).
+	logPath := filepath.Join(cfg.Dir, "tui.log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err == nil {
+		log.SetOutput(logFile)
+		defer logFile.Close()
+	} else {
+		// Fallback: discard all log output to keep the TUI clean.
+		log.SetOutput(io.Discard)
+	}
+
 	m := New(a, cfg, pluginCfg, sessSvc)
 	cw := &cursorWriter{out: os.Stdout, model: m}
-	p := tea.NewProgram(m, tea.WithOutput(cw), tea.WithAltScreen())
-	_, err := p.Run()
+	p := tea.NewProgram(m, tea.WithOutput(cw), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	_, err = p.Run()
 	// Reset cursor style to default (block) after TUI exits
 	fmt.Fprint(os.Stdout, "\033[0 q")
 	return err

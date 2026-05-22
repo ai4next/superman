@@ -11,12 +11,12 @@ import (
 
 // expertInfo is the public representation of an expert returned to the agent.
 type expertInfo struct {
-	Name           string   `json:"name"`
-	Summary        string   `json:"summary"`
-	Description    string   `json:"description"`
-	ToolAllowlist  []string `json:"tools"`
-	SystemPrompt   string   `json:"system_prompt"`
-	Status         string   `json:"status"`
+	Name          string   `json:"name"`
+	Summary       string   `json:"summary"`
+	Description   string   `json:"description"`
+	ToolAllowlist []string `json:"tools"`
+	SystemPrompt  string   `json:"system_prompt"`
+	Status        string   `json:"status"`
 }
 
 type queryExpertsInput struct {

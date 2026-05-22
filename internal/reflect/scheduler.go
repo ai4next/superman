@@ -96,10 +96,10 @@ func (s *Scheduler) loadTasks(dir string) []ScheduleTask {
 func (s *Scheduler) executeTask(ctx context.Context, task ScheduleTask) {
 	sessionService := session.InMemoryService()
 	r, err := runner.New(runner.Config{
-		Agent:              s.agent,
-		AppName:            s.cfg.Session.AppName,
-		SessionService:     sessionService,
-		AutoCreateSession:  true,
+		Agent:             s.agent,
+		AppName:           s.cfg.Session.AppName,
+		SessionService:    sessionService,
+		AutoCreateSession: true,
 	})
 	if err != nil {
 		log.Printf("[scheduler] runner creation failed: %v", err)

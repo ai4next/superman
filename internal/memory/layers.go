@@ -62,6 +62,9 @@ func (s *L0Store) All() map[string]string {
 }
 
 func (s *L0Store) Save(name, content string) error {
+	if err := os.MkdirAll(s.sopDir, 0755); err != nil {
+		return err
+	}
 	path := filepath.Join(s.sopDir, name+".md")
 	return os.WriteFile(path, []byte(content), 0644)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -34,10 +35,20 @@ func (a *memorySearchAdapter) Search(ctx context.Context, query string) ([]tools
 	results := make([]tools.SearchResult, len(entries))
 	for i, e := range entries {
 		results[i] = tools.SearchResult{
-			ID:      e.ID,
-			Summary: e.Summary,
-			Layer:   e.Layer,
-			Content: e.Content,
+			ID:          e.ID,
+			Summary:     e.Summary,
+			Layer:       e.Layer,
+			Content:     e.Content,
+			Category:    e.Category,
+			Scope:       e.Scope,
+			Tags:        e.Tags,
+			Importance:  e.Importance,
+			Confidence:  e.Confidence,
+			AccessCount: e.AccessCount,
+			Supersedes:  e.Supersedes,
+		}
+		if !e.LastAccessedAt.IsZero() {
+			results[i].LastAccessedAt = e.LastAccessedAt.Format(time.RFC3339)
 		}
 	}
 	return results, nil
@@ -51,14 +62,14 @@ func RunServe(cmd *cobra.Command, args []string) error {
 	llm := model.MustNew(ctx, cfg.Model)
 
 	// Memory service (L1-L3) with file persistence
-	memSvc := memory.New(cfg.Memory.L1.MaxEntries, cfg.Memory.L2.Dir)
+	memSvc := memory.New(cfg.Memory.L1.MaxEntries, filepath.Join(cfg.Dir, "memory"))
 	if err := memSvc.LoadFromDisk(); err != nil {
 		log.Printf("[cli] memory load warning: %v", err)
 	}
 
 	// L0 SOP store — load templates and inject into agent prompt
 	var sopContent string
-	l0, err := memory.NewL0Store(cfg.Memory.L0.SOPDir)
+	l0, err := memory.NewL0Store(filepath.Join(cfg.Dir, "memory", "l0"))
 	if err != nil {
 		log.Printf("[cli] L0Store warning: %v", err)
 	}
@@ -84,19 +95,32 @@ func RunServe(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	// L4 archiver: compress old session files
-	if cfg.Memory.L4.Enabled {
-		go func() {
-			ttl := cfg.Memory.L4.SessionTTL.AsDuration()
-			ticker := time.NewTicker(cfg.Memory.L4.ArchiveInterval.AsDuration())
-			defer ticker.Stop()
-			for range ticker.C {
-				if archived, _ := memory.ArchiveSessions(ctx, cfg.Session.HistoryPath, cfg.Memory.L2.Dir, ttl); archived > 0 {
-					log.Printf("[memory] L4 archived %d sessions", archived)
-				}
+	go func() {
+		ticker := time.NewTicker(cfg.Memory.Evolution.Interval.AsDuration())
+		defer ticker.Stop()
+		for range ticker.C {
+			candidates, err := memSvc.Evolve(ctx, filepath.Join(cfg.Dir, "memory", "candidates"))
+			if err != nil {
+				log.Printf("[memory] evolution warning: %v", err)
+				continue
 			}
-		}()
-	}
+			if len(candidates) > 0 {
+				log.Printf("[memory] evolution wrote %d candidates", len(candidates))
+			}
+		}
+	}()
+
+	// L4 archiver: compress old session files
+	go func() {
+		ttl := cfg.Memory.L4.SessionTTL.AsDuration()
+		ticker := time.NewTicker(cfg.Memory.L4.ArchiveInterval.AsDuration())
+		defer ticker.Stop()
+		for range ticker.C {
+			if archived, _ := memory.ArchiveSessions(ctx, cfg.Session.HistoryPath, filepath.Join(cfg.Dir, "memory"), ttl); archived > 0 {
+				log.Printf("[memory] L4 archived %d sessions", archived)
+			}
+		}
+	}()
 
 	// Expert Registry
 	var expertRegistry *expert.Registry

@@ -71,11 +71,11 @@ var runCmd = &cobra.Command{
 
 		sessionService := session.InMemoryService()
 		r, err := runner.New(runner.Config{
-			Agent:              a,
-			AppName:            cfg.Session.AppName,
-			SessionService:     sessionService,
-			PluginConfig:       runner.PluginConfig{Plugins: adkPlugins},
-			AutoCreateSession:  true,
+			Agent:             a,
+			AppName:           cfg.Session.AppName,
+			SessionService:    sessionService,
+			PluginConfig:      runner.PluginConfig{Plugins: adkPlugins},
+			AutoCreateSession: true,
 		})
 		if err != nil {
 			return fmt.Errorf("create runner: %w", err)

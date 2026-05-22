@@ -10,10 +10,18 @@ import (
 
 // SearchResult is returned by memory search operations.
 type SearchResult struct {
-	ID      string `json:"id"`
-	Summary string `json:"summary"`
-	Layer   int    `json:"layer"`
-	Content string `json:"content"`
+	ID             string   `json:"id"`
+	Summary        string   `json:"summary"`
+	Layer          int      `json:"layer"`
+	Content        string   `json:"content"`
+	Category       string   `json:"category,omitempty"`
+	Scope          string   `json:"scope,omitempty"`
+	Tags           []string `json:"tags,omitempty"`
+	Importance     float64  `json:"importance,omitempty"`
+	Confidence     float64  `json:"confidence,omitempty"`
+	AccessCount    int      `json:"access_count,omitempty"`
+	Supersedes     []string `json:"supersedes,omitempty"`
+	LastAccessedAt string   `json:"last_accessed_at,omitempty"`
 }
 
 // MemoryStorer is the interface for storing long-term memories.

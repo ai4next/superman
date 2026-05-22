@@ -50,8 +50,8 @@ func New(ctx context.Context, cfg config.ModelConfig) (model.LLM, error) {
 			baseURL = "https://api.anthropic.com"
 		}
 		cfg := anthropic.Config{
-			APIKey:   apiKey,
-			BaseURL:  baseURL,
+			APIKey:    apiKey,
+			BaseURL:   baseURL,
 			ModelName: cfg.Name,
 		}
 		return anthropic.New(cfg), nil

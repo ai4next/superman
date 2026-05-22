@@ -195,6 +195,33 @@ superman/
 └── go.sum
 ```
 
+## 运行时目录
+
+所有运行时数据都存储在 `cfg.Dir`（默认为 `~/.sm/`），首次启动时自动创建：
+
+```
+~/.sm/                                    # cfg.Dir（默认: $HOME/.sm）
+├── config.yaml                           # 用户配置（由 `sm configure` 创建）
+├── tui.log                               # TUI 运行时日志（重定向以防干扰界面显示）
+├── hooks/                                # Hook 事件脚本（11 种生命周期事件）
+├── skills/                               # Skill 定义（SKILL.md）
+├── data/
+│   └── experts/                          # 专家 YAML 定义（自动管理）
+├── memory/                               # 分层记忆持久化
+│   ├── l0/                               # L0 SOP 规则模板（*.md）
+│   ├── l1/
+│   │   └── index.txt                     # L1 热记忆索引（自动重建）
+│   ├── l2/
+│   │   └── entries.jsonl                 # L2 持久化工作记忆
+│   ├── l3/
+│   │   └── archive.jsonl                 # L3 长期归档记忆
+│   ├── l4/                               # L4 压缩会话归档
+│   └── candidates/                       # 进化候选（仅审查，不自动写入）
+│       ├── memory.jsonl
+│       ├── sop/
+│       └── experts/
+```
+
 ## 构建
 
 ```bash
