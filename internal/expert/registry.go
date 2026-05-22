@@ -277,6 +277,45 @@ func (r *Registry) GetCallRecords(name string) []CallRecord {
 	return result
 }
 
+// GetVersionHistory returns all versions of an expert, sorted by version.
+func (r *Registry) GetVersionHistory(name string) ([]*Spec, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var versions []*Spec
+	for _, s := range r.experts {
+		if s.Name == name || strings.HasPrefix(s.Name, name+"-v") {
+			versions = append(versions, copySpec(s))
+		}
+	}
+	if len(versions) == 0 {
+		return nil, fmt.Errorf("no versions found for %q", name)
+	}
+	sort.Slice(versions, func(i, j int) bool {
+		return versions[i].Version < versions[j].Version
+	})
+	return versions, nil
+}
+
+// CreateVersion creates a new version of an existing expert.
+func (r *Registry) CreateVersion(name string, updated Spec) (*Spec, error) {
+	existing, err := r.Get(name)
+	if err != nil {
+		return nil, err
+	}
+
+	updated.Name = fmt.Sprintf("%s-v%d", name, existing.Version+1)
+	updated.Version = existing.Version + 1
+	updated.PreviousID = existing.Name
+	updated.CreatedAt = time.Now()
+	updated.UpdatedAt = time.Now()
+	if updated.Status == "" {
+		updated.Status = existing.Status
+	}
+
+	return r.Create(updated)
+}
+
 // persistLocked writes a single expert spec to disk. Must be called while
 // holding r.mu write lock.
 func (r *Registry) persistLocked(spec *Spec) error {

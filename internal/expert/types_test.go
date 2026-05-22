@@ -27,6 +27,19 @@ func TestSpecDefaults(t *testing.T) {
 	}
 }
 
+func TestSpecVersionDefaults(t *testing.T) {
+	s := Spec{
+		Name:    "test",
+		Summary: "test",
+	}
+	if s.Version != 0 {
+		t.Errorf("expected 0 version, got %d", s.Version)
+	}
+	if s.PreviousID != "" {
+		t.Errorf("expected empty PreviousID, got %s", s.PreviousID)
+	}
+}
+
 func TestCallRecord(t *testing.T) {
 	now := time.Now()
 	r := CallRecord{

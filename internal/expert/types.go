@@ -31,6 +31,8 @@ type Spec struct {
 	Status         Status    `yaml:"status" json:"status"`
 	Frequency      int       `yaml:"frequency" json:"frequency"`         // Total invocation count
 	Confidence     float64   `yaml:"confidence" json:"confidence"`       // 0.0 (low) to 1.0 (high)
+	Version        int       `yaml:"version" json:"version"`
+	PreviousID     string    `yaml:"previous_id,omitempty" json:"previous_id,omitempty"`
 	CreatedAt      time.Time `yaml:"created_at" json:"created_at"`
 	UpdatedAt      time.Time `yaml:"updated_at" json:"updated_at"`
 }

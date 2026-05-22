@@ -576,6 +576,60 @@ func TestArchiveStaleWithSuccess(t *testing.T) {
 		t.Errorf("expected archived, got %s", s.Status)
 	}
 }
+
+func TestCreateVersion(t *testing.T) {
+	dir := t.TempDir()
+	r := NewRegistry(dir)
+	r.Create(Spec{Name: "test", Summary: "original", Status: StatusActive})
+
+	v2, err := r.CreateVersion("test", Spec{
+		Summary:      "updated version",
+		Description:  "better version",
+		SystemPrompt: "improved prompt",
+	})
+	if err != nil {
+		t.Fatalf("CreateVersion failed: %v", err)
+	}
+	if v2.Version != 1 {
+		t.Errorf("expected version 1, got %d", v2.Version)
+	}
+	if v2.PreviousID != "test" {
+		t.Errorf("expected PreviousID 'test', got %s", v2.PreviousID)
+	}
+	if v2.Name != "test-v1" {
+		t.Errorf("expected name test-v1, got %s", v2.Name)
+	}
+}
+
+func TestGetVersionHistory(t *testing.T) {
+	dir := t.TempDir()
+	r := NewRegistry(dir)
+	r.Create(Spec{Name: "test", Summary: "v1", Status: StatusActive})
+	r.CreateVersion("test", Spec{Summary: "v2"})
+
+	versions, err := r.GetVersionHistory("test")
+	if err != nil {
+		t.Fatalf("GetVersionHistory failed: %v", err)
+	}
+	if len(versions) != 2 {
+		t.Fatalf("expected 2 versions, got %d", len(versions))
+	}
+	if versions[0].Version != 0 {
+		t.Errorf("expected version 0 first, got %d", versions[0].Version)
+	}
+	if versions[1].Version != 1 {
+		t.Errorf("expected version 1 second, got %d", versions[1].Version)
+	}
+}
+
+func TestGetVersionHistoryNotFound(t *testing.T) {
+	dir := t.TempDir()
+	r := NewRegistry(dir)
+	_, err := r.GetVersionHistory("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent expert")
+	}
+}
 func TestRegistryFTS5Search(t *testing.T) {
 	dir := t.TempDir()
 	r := NewRegistry(dir)
