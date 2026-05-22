@@ -147,6 +147,7 @@ func (r *Registry) Delete(name string) error {
 		return fmt.Errorf("expert %q not found", name)
 	}
 	delete(r.experts, name)
+		delete(r.callLogs, name)
 
 	dir := filepath.Join(r.baseDir, "data", "experts", name)
 	os.RemoveAll(dir)
