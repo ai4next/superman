@@ -14,6 +14,7 @@ import (
 
 	"github.com/ai4next/superman/internal/agent"
 	"github.com/ai4next/superman/internal/agent/tools"
+	"github.com/ai4next/superman/internal/expert"
 	"github.com/ai4next/superman/internal/memory"
 	"github.com/ai4next/superman/internal/model"
 	"github.com/ai4next/superman/internal/plugin"
@@ -103,6 +104,16 @@ func RunServe(cmd *cobra.Command, args []string) error {
 		}()
 	}
 
+	// Expert Registry
+	var expertRegistry *expert.Registry
+	if cfg.Expert.Enabled {
+		expertRegistry = expert.NewRegistry(cfg.Expert.Dir)
+		if err := expertRegistry.LoadFromDisk(); err != nil {
+			log.Printf("[expert] load warning: %v", err)
+		}
+		log.Printf("[expert] loaded %d experts", len(expertRegistry.List()))
+	}
+
 	// Session manager with JSONL persistence
 	sessMgr := session.New(adksession.InMemoryService(), cfg.Session.HistoryPath, cfg.Session.MaxTurns)
 
@@ -126,7 +137,7 @@ func RunServe(cmd *cobra.Command, args []string) error {
 	searchAdapter := &memorySearchAdapter{svc: memSvc}
 
 	// Agent with memory service, search, and SOP templates
-	a, err := agent.New(llm, cfg, memSvc, searchAdapter, sopContent)
+	a, err := agent.New(llm, cfg, memSvc, searchAdapter, sopContent, expertRegistry)
 	if err != nil {
 		return fmt.Errorf("create agent: %w", err)
 	}
