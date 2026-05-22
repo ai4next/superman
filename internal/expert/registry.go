@@ -2,6 +2,7 @@ package expert
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,7 +29,7 @@ func NewRegistry(baseDir string) *Registry {
 	}
 }
 
-// LoadFromDisk reads all expert definitions from disk.
+// LoadFromDisk reads all expert definitions from disk into the registry.
 func (r *Registry) LoadFromDisk() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -52,10 +53,12 @@ func (r *Registry) LoadFromDisk() error {
 			if os.IsNotExist(err) {
 				continue
 			}
+			log.Printf("[expert] skip %s: %v", entry.Name(), err)
 			continue
 		}
 		var spec Spec
 		if err := yaml.Unmarshal(data, &spec); err != nil {
+			log.Printf("[expert] skip %s: bad YAML: %v", entry.Name(), err)
 			continue
 		}
 		r.experts[spec.Name] = &spec
@@ -81,15 +84,16 @@ func (r *Registry) Create(spec Spec) (*Spec, error) {
 	if spec.Status == "" {
 		spec.Status = StatusDraft
 	}
-	r.experts[spec.Name] = &spec
 
+	// Persist to disk first, then add to memory
 	if err := r.persistLocked(&spec); err != nil {
 		return nil, err
 	}
+	r.experts[spec.Name] = &spec
 	return &spec, nil
 }
 
-// Get retrieves a copy of an expert by name.
+// Get retrieves a defensive copy of an expert by name.
 func (r *Registry) Get(name string) (*Spec, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -98,19 +102,17 @@ func (r *Registry) Get(name string) (*Spec, error) {
 	if !ok {
 		return nil, fmt.Errorf("expert %q not found", name)
 	}
-	cp := *spec
-	return &cp, nil
+	return copySpec(spec), nil
 }
 
-// List returns copies of all experts.
+// List returns defensive copies of all experts.
 func (r *Registry) List() []*Spec {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	result := make([]*Spec, 0, len(r.experts))
 	for _, s := range r.experts {
-		cp := *s
-		result = append(result, &cp)
+		result = append(result, copySpec(s))
 	}
 	return result
 }
@@ -147,10 +149,12 @@ func (r *Registry) Delete(name string) error {
 		return fmt.Errorf("expert %q not found", name)
 	}
 	delete(r.experts, name)
-		delete(r.callLogs, name)
+	delete(r.callLogs, name)
 
 	dir := filepath.Join(r.baseDir, "data", "experts", name)
-	os.RemoveAll(dir)
+	if err := os.RemoveAll(dir); err != nil {
+		log.Printf("[expert] error removing disk dir for %s: %v", name, err)
+	}
 	return nil
 }
 
@@ -168,19 +172,33 @@ func (r *Registry) Search(query string) []*Spec {
 		}
 		haystack := strings.ToLower(s.Name + " " + s.Summary + " " + s.TriggerPattern + " " + s.Description)
 		if strings.Contains(haystack, lowerQuery) {
-			cp := *s
-			results = append(results, &cp)
+			results = append(results, copySpec(s))
 		}
 	}
 	return results
 }
 
-// RecordCall logs an invocation for an expert for stats tracking.
-func (r *Registry) RecordCall(name string, record CallRecord) {
+// RecordCall logs an invocation for an expert. Returns error if expert doesn't exist.
+func (r *Registry) RecordCall(name string, record CallRecord) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	if _, ok := r.experts[name]; !ok {
+		return fmt.Errorf("expert %q not found", name)
+	}
 	r.callLogs[name] = append(r.callLogs[name], record)
+	return nil
+}
+
+// GetCallRecords returns call records for an expert.
+func (r *Registry) GetCallRecords(name string) []CallRecord {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	records := r.callLogs[name]
+	result := make([]CallRecord, len(records))
+	copy(result, records)
+	return result
 }
 
 // persistLocked writes a single expert spec to disk. Must be called while
@@ -196,4 +214,14 @@ func (r *Registry) persistLocked(spec *Spec) error {
 	}
 	path := filepath.Join(dir, "expert.yaml")
 	return os.WriteFile(path, data, 0644)
+}
+
+// copySpec returns a deep copy of a Spec.
+func copySpec(s *Spec) *Spec {
+	cp := *s
+	if s.ToolAllowlist != nil {
+		cp.ToolAllowlist = make([]string, len(s.ToolAllowlist))
+		copy(cp.ToolAllowlist, s.ToolAllowlist)
+	}
+	return &cp
 }
