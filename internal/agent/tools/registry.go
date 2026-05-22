@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/ai4next/superman/internal/config"
+	"github.com/ai4next/superman/internal/expert"
 	"google.golang.org/adk/tool"
 )
 
@@ -25,12 +26,20 @@ type MemorySearcher interface {
 	Search(ctx context.Context, query string) ([]SearchResult, error)
 }
 
+// ExpertManager provides read and write access to the expert registry.
+type ExpertManager interface {
+	Search(query string) []*expert.Spec
+	List() []*expert.Spec
+	Create(spec expert.Spec) (*expert.Spec, error)
+}
+
 // Dependencies holds shared dependencies for all tools.
 type Dependencies struct {
 	Config         *config.Config
 	Workspace      string
 	MemoryService  MemoryStorer
 	MemorySearcher MemorySearcher
+	ExpertManager  ExpertManager `json:"-"`
 }
 
 // RegisterAll creates and returns all enabled tools.
@@ -66,6 +75,10 @@ func RegisterAll(deps Dependencies) []tool.Tool {
 	}
 	if deps.Config.Tools.LongTermMemory.Enabled {
 		tools = append(tools, newSearchMemoryTool(deps))
+	}
+	if deps.ExpertManager != nil && deps.Config.Expert.Enabled {
+		tools = append(tools, newQueryExpertsTool(deps.ExpertManager))
+		tools = append(tools, newCreateExpertTool(deps.ExpertManager))
 	}
 
 	return tools
