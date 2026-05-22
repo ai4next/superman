@@ -25,7 +25,7 @@ var reflectCmd = &cobra.Command{
 		defer cancel()
 
 		llm := model.MustNew(ctx, cfg.Model)
-		a, err := agent.NewWithoutMemory(llm, cfg)
+		a, _, err := agent.NewWithoutMemory(llm, cfg)
 		if err != nil {
 			return fmt.Errorf("create agent: %w", err)
 		}

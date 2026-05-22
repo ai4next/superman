@@ -77,12 +77,9 @@ func RunServe(cmd *cobra.Command, args []string) error {
 	go func() {
 		ticker := time.NewTicker(cfg.Memory.L3.ArchiveInterval.AsDuration())
 		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				if archived, _ := memSvc.Archive(ctx, 48*time.Hour); archived > 0 {
-					log.Printf("[memory] archived %d entries", archived)
-				}
+		for range ticker.C {
+			if archived, _ := memSvc.Archive(ctx, 48*time.Hour); archived > 0 {
+				log.Printf("[memory] archived %d entries", archived)
 			}
 		}
 	}()
@@ -93,12 +90,9 @@ func RunServe(cmd *cobra.Command, args []string) error {
 			ttl := cfg.Memory.L4.SessionTTL.AsDuration()
 			ticker := time.NewTicker(cfg.Memory.L4.ArchiveInterval.AsDuration())
 			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					if archived, _ := memory.ArchiveSessions(ctx, cfg.Session.HistoryPath, cfg.Memory.L2.Dir, ttl); archived > 0 {
-						log.Printf("[memory] L4 archived %d sessions", archived)
-					}
+			for range ticker.C {
+				if archived, _ := memory.ArchiveSessions(ctx, cfg.Session.HistoryPath, cfg.Memory.L2.Dir, ttl); archived > 0 {
+					log.Printf("[memory] L4 archived %d sessions", archived)
 				}
 			}
 		}()
@@ -120,17 +114,14 @@ func RunServe(cmd *cobra.Command, args []string) error {
 		go func() {
 			ticker := time.NewTicker(30 * time.Minute)
 			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					created, err := patternAnalyzer.RunAnalysis()
-					if err != nil {
-						log.Printf("[expert] pattern analysis: %v", err)
-					} else if len(created) > 0 {
-						log.Printf("[expert] pattern analysis created %d new expert drafts", len(created))
-						for _, s := range created {
-							log.Printf("[expert]   draft: %s (confidence: %.2f)", s.Name, s.Confidence)
-						}
+			for range ticker.C {
+				created, err := patternAnalyzer.RunAnalysis()
+				if err != nil {
+					log.Printf("[expert] pattern analysis: %v", err)
+				} else if len(created) > 0 {
+					log.Printf("[expert] pattern analysis created %d new expert drafts", len(created))
+					for _, s := range created {
+						log.Printf("[expert]   draft: %s (confidence: %.2f)", s.Name, s.Confidence)
 					}
 				}
 			}
@@ -166,10 +157,11 @@ func RunServe(cmd *cobra.Command, args []string) error {
 	searchAdapter := &memorySearchAdapter{svc: memSvc}
 
 	// Agent with memory service, search, and SOP templates
-	a, err := agent.New(llm, cfg, memSvc, searchAdapter, sopContent, expertRegistry, delegateRunner)
+	a, extraPlugins, err := agent.New(llm, cfg, memSvc, searchAdapter, sopContent, expertRegistry, delegateRunner)
 	if err != nil {
 		return fmt.Errorf("create agent: %w", err)
 	}
+	adkPlugins = append(adkPlugins, extraPlugins...)
 
 	log.Printf("[cli] starting TUI with model %s/%s (%d plugins, sessions: %s)",
 		cfg.Model.Provider, cfg.Model.Name, len(adkPlugins), cfg.Session.HistoryPath)

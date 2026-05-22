@@ -1,16 +1,23 @@
 package agent
 
 import (
+	"context"
 	_ "embed"
 	"log"
+	"os"
 
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/model"
+	"google.golang.org/adk/plugin"
+	"google.golang.org/adk/tool"
+	"google.golang.org/adk/tool/skilltoolset"
+	"google.golang.org/adk/tool/skilltoolset/skill"
 
 	"github.com/ai4next/superman/internal/agent/tools"
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/expert"
+	"github.com/ai4next/superman/internal/hook"
 	"github.com/ai4next/superman/internal/memory"
 )
 
@@ -19,7 +26,7 @@ var systemPrompt string
 
 // New creates a new Superman agent with all registered tools, optional SOP rules,
 // and L1 memory index injected into the system prompt.
-func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, memSearcher tools.MemorySearcher, sopContent string, expertRegistry *expert.Registry, delegateRunner tools.DelegateRunner) (agent.Agent, error) {
+func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, memSearcher tools.MemorySearcher, sopContent string, expertRegistry *expert.Registry, delegateRunner tools.DelegateRunner) (agent.Agent, []*plugin.Plugin, error) {
 	deps := tools.Dependencies{
 		Config:         cfg,
 		Workspace:      cfg.Tools.CodeRun.Workspace,
@@ -46,15 +53,37 @@ func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, memSearcher 
 		instruction += "\n\n## SOP Rules\n" + sopContent
 	}
 
+	// Hook manager plugin
+	var extraPlugins []*plugin.Plugin
+	hookMgr, err := hook.NewManager("hooks")
+	if err != nil {
+		log.Printf("[agent] hook manager: %v", err)
+	} else {
+		extraPlugins = append(extraPlugins, hookMgr.Plugin())
+	}
+
+	// Create SkillToolset from skills/ directory
+	var agentToolsets []tool.Toolset
+	skillFS := os.DirFS("skills")
+	skillSource := skill.NewFileSystemSource(skillFS)
+	skillTS, err := skilltoolset.New(context.Background(), skilltoolset.Config{Source: skillSource})
+	if err != nil {
+		log.Printf("[agent] skill toolset: %v", err)
+	} else {
+		agentToolsets = append(agentToolsets, skillTS)
+		log.Printf("[agent] skill toolset loaded")
+	}
+
 	a, err := llmagent.New(llmagent.Config{
 		Name:        "superman",
 		Model:       llm,
 		Description: "Superman - general-purpose autonomous AI assistant",
 		Instruction: instruction,
 		Tools:       toolList,
+		Toolsets:    agentToolsets,
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	log.Printf("[agent] created superman agent with %d tools", len(toolList))
@@ -62,10 +91,10 @@ func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, memSearcher 
 	checkpoints := tools.GetCheckpoints()
 	log.Printf("[agent] loaded %d checkpoints", len(checkpoints))
 
-	return a, nil
+	return a, extraPlugins, nil
 }
 
 // NewWithoutMemory creates an agent without a memory service (for simple CLI usage).
-func NewWithoutMemory(llm model.LLM, cfg *config.Config) (agent.Agent, error) {
+func NewWithoutMemory(llm model.LLM, cfg *config.Config) (agent.Agent, []*plugin.Plugin, error) {
 	return New(llm, cfg, nil, nil, "", nil, nil)
 }

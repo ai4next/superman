@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	adkagent "google.golang.org/adk/agent"
-	adkplugin "google.golang.org/adk/plugin"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
 	"google.golang.org/genai"
@@ -51,12 +50,12 @@ var runCmd = &cobra.Command{
 		}
 
 		llm := model.MustNew(ctx, cfg.Model)
-		a, err := superman.NewWithoutMemory(llm, cfg)
+		a, extraPlugins, err := superman.NewWithoutMemory(llm, cfg)
 		if err != nil {
 			return fmt.Errorf("create agent: %w", err)
 		}
 
-		var adkPlugins []*adkplugin.Plugin
+		adkPlugins := extraPlugins
 		for _, pc := range cfg.Plugins {
 			if !pc.Enabled {
 				continue

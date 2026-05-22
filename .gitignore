@@ -41,7 +41,7 @@ docs/
 .codex
 
 # Data
-/data
+data/
 
 # Exe
 /superman
