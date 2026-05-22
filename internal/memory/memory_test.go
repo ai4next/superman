@@ -392,3 +392,121 @@ func TestService_EvolveWritesCandidatesOnly(t *testing.T) {
 		t.Fatalf("experts candidate dir not created: %v", err)
 	}
 }
+
+func TestService_RebuildsHybridIndexesFromFileSource(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	s := New(10, dir)
+
+	if _, err := s.Store(ctx, "Project Atlas deploy target is Kubernetes", "project"); err != nil {
+		t.Fatalf("Store: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "index", "metadata.jsonl")); err != nil {
+		t.Fatalf("metadata index not written: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "index", "semantic.jsonl")); err != nil {
+		t.Fatalf("semantic index not written: %v", err)
+	}
+
+	if err := os.Remove(filepath.Join(dir, "index", "metadata.jsonl")); err != nil {
+		t.Fatalf("remove metadata index: %v", err)
+	}
+	if err := os.Remove(filepath.Join(dir, "index", "semantic.jsonl")); err != nil {
+		t.Fatalf("remove semantic index: %v", err)
+	}
+
+	reloaded := New(10, dir)
+	if err := reloaded.LoadFromDisk(); err != nil {
+		t.Fatalf("LoadFromDisk: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "index", "metadata.jsonl")); err != nil {
+		t.Fatalf("metadata index was not rebuilt: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "index", "semantic.jsonl")); err != nil {
+		t.Fatalf("semantic index was not rebuilt: %v", err)
+	}
+	results, err := reloaded.Search(ctx, "Atlas Kubernetes")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) != 1 || !strings.Contains(results[0].Content, "Project Atlas") {
+		t.Fatalf("unexpected rebuilt index search results: %#v", results)
+	}
+}
+
+func TestService_RecallFiltersScopeProjectTypeAndLimit(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	s := New(10, dir)
+
+	global, err := s.Store(ctx, "Global workflow is to run unit tests before handoff", "workflow")
+	if err != nil {
+		t.Fatalf("Store global: %v", err)
+	}
+	global.Scope = "global"
+	global.Project = ""
+	atlas, err := s.Store(ctx, "Project Atlas workflow deploys through Kubernetes", "workflow")
+	if err != nil {
+		t.Fatalf("Store atlas: %v", err)
+	}
+	atlas.Project = "atlas"
+	other, err := s.Store(ctx, "Project Beacon workflow deploys through Nomad", "workflow")
+	if err != nil {
+		t.Fatalf("Store beacon: %v", err)
+	}
+	other.Project = "beacon"
+	if err := s.persistAllLocked(); err != nil {
+		t.Fatalf("persistAllLocked: %v", err)
+	}
+
+	results, err := s.Recall(ctx, "workflow deploy", RecallOptions{
+		Scope:   "user",
+		Project: "atlas",
+		Types:   []string{"workflow"},
+		Limit:   2,
+	})
+	if err != nil {
+		t.Fatalf("Recall: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("Recall returned %d results, want 2: %#v", len(results), results)
+	}
+	for _, result := range results {
+		if result.Project == "beacon" {
+			t.Fatalf("Recall leaked other project memory: %#v", result)
+		}
+		if result.Type != "workflow" {
+			t.Fatalf("Recall returned wrong type %q", result.Type)
+		}
+	}
+}
+
+func TestService_SensitiveMemoryIsIsolatedFromRecallAndL1(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	s := New(10, dir)
+
+	entry, err := s.Store(ctx, "The API key is sk-test-abcdefghijklmnopqrstuvwxyz123456", "fact")
+	if err != nil {
+		t.Fatalf("Store: %v", err)
+	}
+	if !entry.Sensitive {
+		t.Fatal("expected sensitive memory to be flagged")
+	}
+	if entry.Status != "isolated" {
+		t.Fatalf("status = %q, want isolated", entry.Status)
+	}
+	if entry.Layer != 3 {
+		t.Fatalf("layer = %d, want 3", entry.Layer)
+	}
+	if got := s.GetL1Content(); strings.Contains(got, "API key") {
+		t.Fatalf("sensitive memory leaked into L1: %s", got)
+	}
+	results, err := s.Search(ctx, "API key")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("sensitive memory leaked into search: %#v", results)
+	}
+}

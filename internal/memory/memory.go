@@ -15,36 +15,51 @@ import (
 
 type Entry struct {
 	ID             string    `json:"id"`
+	Type           string    `json:"type,omitempty"`
 	Content        string    `json:"content"`
 	Summary        string    `json:"summary"`
 	Category       string    `json:"category,omitempty"`
 	Scope          string    `json:"scope,omitempty"`
+	Project        string    `json:"project,omitempty"`
 	Source         string    `json:"source,omitempty"`
+	Status         string    `json:"status,omitempty"`
 	Tags           []string  `json:"tags,omitempty"`
 	Layer          int       `json:"layer"`
 	Importance     float64   `json:"importance,omitempty"`
 	Confidence     float64   `json:"confidence,omitempty"`
 	AccessCount    int       `json:"access_count,omitempty"`
 	Supersedes     []string  `json:"supersedes,omitempty"`
+	ConflictsWith  []string  `json:"conflicts_with,omitempty"`
+	Sensitive      bool      `json:"sensitive,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 	LastAccessedAt time.Time `json:"last_accessed_at,omitempty"`
 }
 
 type Service struct {
-	mu        sync.RWMutex
-	entries   map[string]*Entry
-	l1Index   []string
-	maxL1     int
-	memoryDir string
+	mu            sync.RWMutex
+	entries       map[string]*Entry
+	l1Index       []string
+	maxL1         int
+	memoryDir     string
+	metadataIndex MetadataIndex
+	semanticIndex SemanticIndex
 }
 
 func New(maxL1Entries int, memoryDir string) *Service {
-	return &Service{
+	s := &Service{
 		entries:   make(map[string]*Entry),
 		maxL1:     maxL1Entries,
 		memoryDir: memoryDir,
 	}
+	if memoryDir != "" {
+		s.metadataIndex = newFileMetadataIndex(filepath.Join(memoryDir, "index", "metadata.jsonl"))
+		s.semanticIndex = newFileSemanticIndex(filepath.Join(memoryDir, "index", "semantic.jsonl"))
+	} else {
+		s.metadataIndex = newMemoryMetadataIndex()
+		s.semanticIndex = newMemorySemanticIndex()
+	}
+	return s
 }
 
 // LoadFromDisk reads L2 entries and L3 archive from disk, rebuilding in-memory state.
@@ -60,7 +75,7 @@ func (s *Service) LoadFromDisk() error {
 	s.l1Index = nil
 
 	// Ensure all layer subdirectories exist
-	for _, dir := range []string{"l1", "l2", "l3", "l4"} {
+	for _, dir := range []string{"l1", "l2", "l3", "l4", "index"} {
 		if err := os.MkdirAll(filepath.Join(s.memoryDir, dir), 0755); err != nil {
 			return fmt.Errorf("create %s dir: %w", dir, err)
 		}
@@ -74,8 +89,8 @@ func (s *Service) LoadFromDisk() error {
 	}
 
 	s.rebuildL1IndexLocked()
-	if err := s.persistL1Index(); err != nil {
-		return fmt.Errorf("persist rebuilt l1 index: %w", err)
+	if err := s.rebuildIndexesLocked(); err != nil {
+		return fmt.Errorf("rebuild indexes: %w", err)
 	}
 
 	log.Printf("[memory] loaded %d entries, %d L1 index entries from %s", len(s.entries), len(s.l1Index), s.memoryDir)
@@ -182,6 +197,13 @@ func (s *Service) Store(ctx context.Context, content, category string) (*Entry, 
 	if content == "" {
 		return nil, fmt.Errorf("memory content is empty")
 	}
+	sensitive := isSensitiveContent(content)
+	status := "active"
+	layer := 2
+	if sensitive {
+		status = "isolated"
+		layer = 3
+	}
 
 	if existing := s.findDuplicateLocked(content, category); existing != nil {
 		existing.UpdatedAt = now
@@ -191,6 +213,11 @@ func (s *Service) Store(ctx context.Context, content, category string) (*Entry, 
 			existing.Summary = summarize(content, 120)
 		}
 		existing.Tags = mergeTags(existing.Tags, deriveTags(content, category))
+		existing.Sensitive = existing.Sensitive || sensitive
+		if existing.Sensitive {
+			existing.Status = "isolated"
+			existing.Layer = 3
+		}
 		s.rebuildL1IndexLocked()
 		if err := s.persistAllLocked(); err != nil {
 			log.Printf("[memory] persist duplicate update error: %v", err)
@@ -202,19 +229,23 @@ func (s *Service) Store(ctx context.Context, content, category string) (*Entry, 
 	superseded := s.findSupersededLocked(content, category)
 	id := fmt.Sprintf("mem-%d", now.UnixNano())
 	entry := &Entry{
-		ID:         id,
-		Content:    content,
-		Summary:    summarize(content, 120),
-		Category:   category,
-		Scope:      "user",
-		Source:     "long_term_memory",
-		Tags:       deriveTags(content, category),
-		Layer:      2,
-		Importance: defaultImportance(category),
-		Confidence: 0.95,
-		Supersedes: superseded,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		ID:            id,
+		Type:          inferType(category, content),
+		Content:       content,
+		Summary:       summarize(content, 120),
+		Category:      category,
+		Scope:         "user",
+		Source:        "long_term_memory",
+		Status:        status,
+		Tags:          deriveTags(content, category),
+		Layer:         layer,
+		Importance:    defaultImportance(category),
+		Confidence:    defaultConfidence(sensitive),
+		Supersedes:    superseded,
+		ConflictsWith: superseded,
+		Sensitive:     sensitive,
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 	s.entries[id] = entry
 	for _, oldID := range superseded {
@@ -222,6 +253,8 @@ func (s *Service) Store(ctx context.Context, content, category string) (*Entry, 
 			old.Importance = clamp(old.Importance-0.3, 0, 1)
 			old.UpdatedAt = now
 			old.Layer = 3
+			old.Status = "superseded"
+			old.ConflictsWith = mergeIDs(old.ConflictsWith, []string{id})
 		}
 	}
 	s.rebuildL1IndexLocked()
@@ -247,17 +280,38 @@ func (s *Service) StoreString(ctx context.Context, content, category string) (st
 }
 
 func (s *Service) Search(ctx context.Context, query string) ([]*Entry, error) {
+	return s.Recall(ctx, query, RecallOptions{})
+}
+
+func (s *Service) Recall(ctx context.Context, query string, opts RecallOptions) ([]*Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	now := time.Now()
-	var scored []scoredEntry
 	superseded := s.supersededIDsLocked()
+	scoreByID := make(map[string]float64)
+	for id, score := range s.metadataIndex.Query(query, opts) {
+		scoreByID[id] += score
+	}
+	for id, score := range s.semanticIndex.Query(query) {
+		scoreByID[id] += score * 2
+	}
 	for _, entry := range s.entries {
-		score := s.searchScoreLocked(entry, query, superseded)
-		if score > 0 {
-			scored = append(scored, scoredEntry{entry: entry, score: score})
+		if !s.entryAllowedForRecall(entry, opts) {
+			continue
 		}
+		if score := s.searchScoreLocked(entry, query, superseded); score > 0 {
+			scoreByID[entry.ID] += score
+		}
+	}
+
+	scored := make([]scoredEntry, 0, len(scoreByID))
+	for id, score := range scoreByID {
+		entry := s.entries[id]
+		if entry == nil || !s.entryAllowedForRecall(entry, opts) || score <= 0 {
+			continue
+		}
+		scored = append(scored, scoredEntry{entry: entry, score: score})
 	}
 	sort.Slice(scored, func(i, j int) bool {
 		if scored[i].score == scored[j].score {
@@ -265,6 +319,9 @@ func (s *Service) Search(ctx context.Context, query string) ([]*Entry, error) {
 		}
 		return scored[i].score > scored[j].score
 	})
+	if opts.Limit > 0 && len(scored) > opts.Limit {
+		scored = scored[:opts.Limit]
+	}
 	results := make([]*Entry, 0, len(scored))
 	for _, item := range scored {
 		item.entry.AccessCount++
@@ -310,6 +367,9 @@ func (s *Service) Archive(ctx context.Context, olderThan time.Duration) (int, er
 	for _, e := range s.entries {
 		if e.Layer == 2 && e.UpdatedAt.UnixNano() < cutoffUnix {
 			e.Layer = 3
+			if e.Status == "" || e.Status == "active" {
+				e.Status = "archived"
+			}
 			e.Summary = summarize(e.Content, 50)
 			archived++
 		}
@@ -338,7 +398,7 @@ func (s *Service) persistAllLocked() error {
 	if err := os.MkdirAll(s.memoryDir, 0755); err != nil {
 		return err
 	}
-	for _, dir := range []string{"l1", "l2", "l3"} {
+	for _, dir := range []string{"l1", "l2", "l3", "index"} {
 		if err := os.MkdirAll(filepath.Join(s.memoryDir, dir), 0755); err != nil {
 			return err
 		}
@@ -349,7 +409,24 @@ func (s *Service) persistAllLocked() error {
 	if err := s.persistLayerEntries(filepath.Join(s.memoryDir, "l3", "archive.jsonl"), 3); err != nil {
 		return err
 	}
-	return s.persistL1Index()
+	return s.rebuildIndexesLocked()
+}
+
+func (s *Service) rebuildIndexesLocked() error {
+	if err := s.persistL1Index(); err != nil {
+		return err
+	}
+	if s.metadataIndex != nil {
+		if err := s.metadataIndex.Rebuild(s.entries); err != nil {
+			return err
+		}
+	}
+	if s.semanticIndex != nil {
+		if err := s.semanticIndex.Rebuild(s.entries); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) persistLayerEntries(path string, layer int) error {
@@ -391,7 +468,7 @@ func (s *Service) rebuildL1IndexLocked() {
 	candidates := make([]scoredEntry, 0, len(s.entries))
 	now := time.Now()
 	for _, entry := range s.entries {
-		if entry.Layer != 2 || entry.Confidence < 0.5 || superseded[entry.ID] {
+		if entry.Layer != 2 || entry.Confidence < 0.5 || superseded[entry.ID] || entry.Status != "active" || entry.Sensitive {
 			continue
 		}
 		score := entry.Importance*4 + float64(entry.AccessCount)*0.5
@@ -419,7 +496,7 @@ func (s *Service) rebuildL1IndexLocked() {
 func (s *Service) findDuplicateLocked(content, category string) *Entry {
 	newTokens := tokenSet(content)
 	for _, entry := range s.entries {
-		if entry.Layer != 2 || entry.Category != category {
+		if entry.Layer != 2 || entry.Category != category || entry.Status == "isolated" {
 			continue
 		}
 		if strings.EqualFold(strings.TrimSpace(entry.Content), content) {
@@ -436,7 +513,7 @@ func (s *Service) findSupersededLocked(content, category string) []string {
 	newTokens := tokenSet(content)
 	var ids []string
 	for _, entry := range s.entries {
-		if entry.Layer != 2 || entry.Category != category {
+		if entry.Layer != 2 || entry.Category != category || entry.Status == "isolated" {
 			continue
 		}
 		if jaccard(newTokens, tokenSet(entry.Content)) >= 0.33 && hasConflictCue(content, entry.Content) {
@@ -461,6 +538,9 @@ func (s *Service) searchScoreLocked(entry *Entry, query string, superseded map[s
 	if strings.TrimSpace(query) == "" {
 		return 0
 	}
+	if entry.Status == "isolated" || entry.Sensitive {
+		return 0
+	}
 	queryTokens := tokenSet(query)
 	if len(queryTokens) == 0 {
 		return 0
@@ -476,6 +556,8 @@ func (s *Service) searchScoreLocked(entry *Entry, query string, superseded map[s
 		{strings.Join(entry.Tags, " "), 2},
 		{entry.Category, 1.5},
 		{entry.Scope, 0.5},
+		{entry.Type, 1},
+		{entry.Project, 0.75},
 	}
 	for _, field := range fields {
 		tokens := tokenSet(field.text)
@@ -496,10 +578,35 @@ func (s *Service) searchScoreLocked(entry *Entry, query string, superseded map[s
 	if superseded[entry.ID] {
 		score *= 0.2
 	}
+	if entry.Status == "superseded" {
+		score *= 0.2
+	}
 	if entry.Layer == 3 {
 		score *= 0.6
 	}
 	return score
+}
+
+func (s *Service) entryAllowedForRecall(entry *Entry, opts RecallOptions) bool {
+	if entry == nil || entry.Status == "isolated" || entry.Sensitive {
+		return false
+	}
+	if opts.Scope != "" && entry.Scope != "" && entry.Scope != opts.Scope && entry.Scope != "global" {
+		return false
+	}
+	if opts.Project != "" && entry.Project != "" && entry.Project != opts.Project {
+		return false
+	}
+	if len(opts.Types) > 0 {
+		entryType := normalizeType(entry.Type)
+		for _, typ := range opts.Types {
+			if entryType == normalizeType(typ) {
+				return true
+			}
+		}
+		return false
+	}
+	return true
 }
 
 func normalizeEntry(entry *Entry, defaultLayer int) {
@@ -512,14 +619,27 @@ func normalizeEntry(entry *Entry, defaultLayer int) {
 		entry.Summary = summarize(entry.Content, 120)
 	}
 	entry.Category = normalizeCategory(entry.Category)
+	if entry.Type == "" {
+		entry.Type = inferType(entry.Category, entry.Content)
+	} else {
+		entry.Type = normalizeType(entry.Type)
+	}
 	if entry.Scope == "" {
 		entry.Scope = "user"
+	}
+	if entry.Status == "" {
+		entry.Status = "active"
 	}
 	if entry.Source == "" {
 		entry.Source = "migration"
 	}
 	if entry.Layer == 0 {
 		entry.Layer = defaultLayer
+	}
+	entry.Sensitive = entry.Sensitive || isSensitiveContent(entry.Content)
+	if entry.Sensitive {
+		entry.Status = "isolated"
+		entry.Layer = 3
 	}
 	if entry.Importance == 0 {
 		entry.Importance = defaultImportance(entry.Category)
@@ -534,6 +654,7 @@ func normalizeEntry(entry *Entry, defaultLayer int) {
 		entry.UpdatedAt = entry.CreatedAt
 	}
 	entry.Tags = mergeTags(entry.Tags, deriveTags(entry.Content, entry.Category))
+	entry.ConflictsWith = mergeIDs(entry.ConflictsWith, nil)
 }
 
 func normalizeCategory(category string) string {
@@ -543,6 +664,40 @@ func normalizeCategory(category string) string {
 		return "fact"
 	}
 	return category
+}
+
+func normalizeType(typ string) string {
+	typ = strings.ToLower(strings.TrimSpace(typ))
+	if typ == "" {
+		return "fact"
+	}
+	return typ
+}
+
+func inferType(category, content string) string {
+	category = normalizeCategory(category)
+	switch category {
+	case "preference", "decision", "workflow", "project":
+		return category
+	}
+	lower := strings.ToLower(content)
+	switch {
+	case strings.Contains(lower, "prefers") || strings.Contains(lower, "prefer") || strings.Contains(lower, "喜欢"):
+		return "preference"
+	case strings.Contains(lower, "decided") || strings.Contains(lower, "decision") || strings.Contains(lower, "决定"):
+		return "decision"
+	case strings.Contains(lower, "workflow") || strings.Contains(lower, "步骤") || strings.Contains(lower, "流程"):
+		return "workflow"
+	default:
+		return "fact"
+	}
+}
+
+func defaultConfidence(sensitive bool) float64 {
+	if sensitive {
+		return 0.3
+	}
+	return 0.95
 }
 
 func defaultImportance(category string) float64 {
@@ -579,6 +734,50 @@ func mergeTags(existing, additional []string) []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+func mergeIDs(existing, additional []string) []string {
+	seen := make(map[string]bool)
+	var result []string
+	for _, id := range append(existing, additional...) {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		result = append(result, id)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func isSensitiveContent(content string) bool {
+	lower := strings.ToLower(content)
+	sensitiveTerms := []string{
+		"api key", "apikey", "secret", "password", "passwd", "token", "private key",
+		"bearer ", "ssh-rsa", "-----begin", "身份证", "密码", "密钥", "令牌",
+	}
+	for _, term := range sensitiveTerms {
+		if strings.Contains(lower, term) {
+			return true
+		}
+	}
+	return looksLikeLongSecret(content)
+}
+
+func looksLikeLongSecret(content string) bool {
+	var run int
+	for _, r := range content {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' {
+			run++
+			if run >= 32 {
+				return true
+			}
+			continue
+		}
+		run = 0
+	}
+	return false
 }
 
 func tokenSet(s string) map[string]bool {
