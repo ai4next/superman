@@ -11,6 +11,7 @@ type Config struct {
 	Plugins  []PluginConfig `mapstructure:"plugins"`
 	Session  SessionConfig  `mapstructure:"session"`
 	Reflect  ReflectConfig  `mapstructure:"reflect"`
+		Expert   ExpertConfig   `mapstructure:"expert"`
 }
 
 // ModelConfig configures the LLM provider.
@@ -157,6 +158,13 @@ type AutonomousConfig struct {
 // SchedulerConfig configures scheduled reflection tasks.
 type SchedulerConfig struct {
 	TasksDir string `mapstructure:"tasks_dir"`
+}
+
+// ExpertConfig configures the expert think tank subsystem.
+type ExpertConfig struct {
+	Enabled bool   `mapstructure:"enabled"`
+	Dir     string `mapstructure:"dir"`
+	TopK    int    `mapstructure:"top_k"`
 }
 
 // Duration unmarshals YAML duration strings like "30s", "2h", "24h".
