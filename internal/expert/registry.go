@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,7 @@ type Registry struct {
 	baseDir  string
 	experts  map[string]*Spec
 	callLogs map[string][]CallRecord
+		idx      *invertedIndex
 }
 
 // NewRegistry creates a registry rooted at baseDir/data/experts/.
@@ -90,6 +92,12 @@ func (r *Registry) Create(spec Spec) (*Spec, error) {
 		return nil, err
 	}
 	r.experts[spec.Name] = &spec
+
+	// Update inverted index if enabled
+	if r.idx != nil {
+		r.idx.addDoc(spec.Name, spec.Summary+" "+spec.Description+" "+spec.TriggerPattern+" "+spec.Name)
+	}
+
 	return &spec, nil
 }
 
@@ -215,11 +223,23 @@ func (r *Registry) ArchiveStale(maxAgeDays int) int {
 }
 
 // Search performs keyword matching against name, summary, trigger pattern,
-// and description. Only returns active and mature experts (excludes archived).
+// and description. Uses inverted index when enabled, falls back to substring match.
 func (r *Registry) Search(query string) []*Spec {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	if r.idx != nil {
+		names := r.idx.search(query)
+		var results []*Spec
+		for _, name := range names {
+			if spec, ok := r.experts[name]; ok && spec.Status != StatusArchived {
+				results = append(results, copySpec(spec))
+			}
+		}
+		return results
+	}
+
+	// Fallback to keyword matching
 	lowerQuery := strings.ToLower(query)
 	var results []*Spec
 	for _, s := range r.experts {
@@ -280,4 +300,82 @@ func copySpec(s *Spec) *Spec {
 		copy(cp.ToolAllowlist, s.ToolAllowlist)
 	}
 	return &cp
+}
+
+// invertedIndex provides TF-scored full-text search over expert documents.
+type invertedIndex struct {
+	docIDs   map[string]int    // expert name → internal doc ID
+	postings map[string][]int  // term → list of doc IDs
+	docs     map[int]string    // doc ID → expert name
+	nextID   int
+}
+
+// EnableFTS5 initializes the inverted index and rebuilds it from current experts.
+func (r *Registry) EnableFTS5() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.idx = &invertedIndex{
+		docIDs:   make(map[string]int),
+		postings: make(map[string][]int),
+		docs:     make(map[int]string),
+	}
+	for _, spec := range r.experts {
+		r.idx.addDoc(spec.Name, spec.Summary+" "+spec.Description+" "+spec.TriggerPattern+" "+spec.Name)
+	}
+}
+
+func (idx *invertedIndex) addDoc(name, text string) {
+	id := idx.nextID
+	idx.nextID++
+	idx.docIDs[name] = id
+	idx.docs[id] = name
+	terms := tokenize(text)
+	for _, term := range terms {
+		idx.postings[term] = append(idx.postings[term], id)
+	}
+}
+
+func (idx *invertedIndex) search(query string) []string {
+	terms := tokenize(query)
+	if len(terms) == 0 {
+		return nil
+	}
+	scores := make(map[int]float64)
+	for _, term := range terms {
+		for _, docID := range idx.postings[term] {
+			scores[docID]++
+		}
+	}
+	type scored struct {
+		id    int
+		score float64
+	}
+	var ranked []scored
+	for id, score := range scores {
+		ranked = append(ranked, scored{id, score / float64(len(terms))})
+	}
+	sort.Slice(ranked, func(i, j int) bool {
+		return ranked[i].score > ranked[j].score
+	})
+	var names []string
+	for _, r := range ranked {
+		if name, ok := idx.docs[r.id]; ok {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func tokenize(s string) []string {
+	s = strings.ToLower(s)
+	parts := strings.Fields(s)
+	var tokens []string
+	for _, p := range parts {
+		p = strings.Trim(p, ".,;:!?\"'()[]{}/\\")
+		if len(p) >= 2 {
+			tokens = append(tokens, p)
+		}
+	}
+	return tokens
 }

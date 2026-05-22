@@ -576,3 +576,19 @@ func TestArchiveStaleWithSuccess(t *testing.T) {
 		t.Errorf("expected archived, got %s", s.Status)
 	}
 }
+func TestRegistryFTS5Search(t *testing.T) {
+	dir := t.TempDir()
+	r := NewRegistry(dir)
+	r.EnableFTS5()
+
+	r.Create(Spec{Name: "go-review", Summary: "Reviews Go code", Description: "examines Go files for bugs", Status: StatusActive})
+	r.Create(Spec{Name: "py-review", Summary: "Reviews Python code", Description: "checks Python for PEP8 issues", Status: StatusActive})
+
+	results := r.Search("Go programming bugs")
+	if len(results) == 0 {
+		t.Fatal("expected FTS5 results for 'Go programming bugs'")
+	}
+	if results[0].Name != "go-review" {
+		t.Errorf("expected go-review as top result, got %s", results[0].Name)
+	}
+}
