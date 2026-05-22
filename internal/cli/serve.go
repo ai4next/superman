@@ -42,100 +42,96 @@ func (a *memorySearchAdapter) Search(ctx context.Context, query string) ([]tools
 	return results, nil
 }
 
-var serveCmd = &cobra.Command{
-	Use:   "serve",
-	Short: "Start the TUI chat interface",
-	Long:  "Start the interactive terminal UI for chatting with the Superman agent.",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := context.Background()
+// RunServe launches the TUI chat interface. Shared by the root command and serve subcommand.
+func RunServe(cmd *cobra.Command, args []string) error {
+	ctx := context.Background()
 
-		// Model
-		llm := model.MustNew(ctx, cfg.Model)
+	// Model
+	llm := model.MustNew(ctx, cfg.Model)
 
-		// Memory service (L1-L3) with file persistence
-		memSvc := memory.New(cfg.Memory.L1.MaxEntries, cfg.Memory.L2.Dir)
-		if err := memSvc.LoadFromDisk(); err != nil {
-			log.Printf("[cli] memory load warning: %v", err)
+	// Memory service (L1-L3) with file persistence
+	memSvc := memory.New(cfg.Memory.L1.MaxEntries, cfg.Memory.L2.Dir)
+	if err := memSvc.LoadFromDisk(); err != nil {
+		log.Printf("[cli] memory load warning: %v", err)
+	}
+
+	// L0 SOP store — load templates and inject into agent prompt
+	var sopContent string
+	l0, err := memory.NewL0Store(cfg.Memory.L0.SOPDir)
+	if err != nil {
+		log.Printf("[cli] L0Store warning: %v", err)
+	}
+	if l0 != nil {
+		rules := l0.All()
+		if len(rules) > 0 {
+			log.Printf("[cli] loaded %d L0 SOP rules", len(rules))
+			for name, content := range rules {
+				sopContent += "\n### " + name + "\n" + content + "\n"
+				log.Printf("[cli]   SOP: %s", name)
+			}
 		}
+	}
 
-		// L0 SOP store — load templates and inject into agent prompt
-		var sopContent string
-		l0, err := memory.NewL0Store(cfg.Memory.L0.SOPDir)
-		if err != nil {
-			log.Printf("[cli] L0Store warning: %v", err)
-		}
-		if l0 != nil {
-			rules := l0.All()
-			if len(rules) > 0 {
-				log.Printf("[cli] loaded %d L0 SOP rules", len(rules))
-				for name, content := range rules {
-					sopContent += "\n### " + name + "\n" + content + "\n"
-					log.Printf("[cli]   SOP: %s", name)
+	// Periodic archiving (L2 → L3)
+	go func() {
+		ticker := time.NewTicker(cfg.Memory.L3.ArchiveInterval.AsDuration())
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if archived, _ := memSvc.Archive(ctx, 48*time.Hour); archived > 0 {
+					log.Printf("[memory] archived %d entries", archived)
 				}
 			}
 		}
+	}()
 
-		// Periodic archiving (L2 → L3)
+	// L4 archiver: compress old session files
+	if cfg.Memory.L4.Enabled {
 		go func() {
-			ticker := time.NewTicker(cfg.Memory.L3.ArchiveInterval.AsDuration())
+			ttl := cfg.Memory.L4.SessionTTL.AsDuration()
+			ticker := time.NewTicker(cfg.Memory.L4.ArchiveInterval.AsDuration())
 			defer ticker.Stop()
 			for {
 				select {
 				case <-ticker.C:
-					if archived, _ := memSvc.Archive(ctx, 48*time.Hour); archived > 0 {
-						log.Printf("[memory] archived %d entries", archived)
+					if archived, _ := memory.ArchiveSessions(ctx, cfg.Session.HistoryPath, cfg.Memory.L2.Dir, ttl); archived > 0 {
+						log.Printf("[memory] L4 archived %d sessions", archived)
 					}
 				}
 			}
 		}()
+	}
 
-		// L4 archiver: compress old session files
-		if cfg.Memory.L4.Enabled {
-			go func() {
-				ttl := cfg.Memory.L4.SessionTTL.AsDuration()
-				ticker := time.NewTicker(cfg.Memory.L4.ArchiveInterval.AsDuration())
-				defer ticker.Stop()
-				for {
-					select {
-					case <-ticker.C:
-						if archived, _ := memory.ArchiveSessions(ctx, cfg.Session.HistoryPath, cfg.Memory.L2.Dir, ttl); archived > 0 {
-							log.Printf("[memory] L4 archived %d sessions", archived)
-						}
-					}
-				}
-			}()
+	// Session manager with JSONL persistence
+	sessMgr := session.New(adksession.InMemoryService(), cfg.Session.HistoryPath, cfg.Session.MaxTurns)
+
+	// Plugins
+	var adkPlugins []*adkplugin.Plugin
+	for _, pc := range cfg.Plugins {
+		if !pc.Enabled {
+			continue
 		}
-
-		// Session manager with JSONL persistence
-		sessMgr := session.New(adksession.InMemoryService(), cfg.Session.HistoryPath, cfg.Session.MaxTurns)
-
-		// Plugins
-		var adkPlugins []*adkplugin.Plugin
-		for _, pc := range cfg.Plugins {
-			if !pc.Enabled {
-				continue
-			}
-			p, err := plugin.Create(pc.Name)
-			if err != nil {
-				log.Printf("[cli] plugin %s skipped: %v", pc.Name, err)
-				continue
-			}
-			if p != nil {
-				adkPlugins = append(adkPlugins, p)
-			}
-		}
-
-		// Create memory search adapter
-		searchAdapter := &memorySearchAdapter{svc: memSvc}
-
-		// Agent with memory service, search, and SOP templates
-		a, err := agent.New(llm, cfg, memSvc, searchAdapter, sopContent)
+		p, err := plugin.Create(pc.Name)
 		if err != nil {
-			return fmt.Errorf("create agent: %w", err)
+			log.Printf("[cli] plugin %s skipped: %v", pc.Name, err)
+			continue
 		}
+		if p != nil {
+			adkPlugins = append(adkPlugins, p)
+		}
+	}
 
-		log.Printf("[cli] starting TUI with model %s/%s (%d plugins, sessions: %s)",
-			cfg.Model.Provider, cfg.Model.Name, len(adkPlugins), cfg.Session.HistoryPath)
-		return runTUI(ctx, a, cfg, runner.PluginConfig{Plugins: adkPlugins}, sessMgr)
-	},
+	// Create memory search adapter
+	searchAdapter := &memorySearchAdapter{svc: memSvc}
+
+	// Agent with memory service, search, and SOP templates
+	a, err := agent.New(llm, cfg, memSvc, searchAdapter, sopContent)
+	if err != nil {
+		return fmt.Errorf("create agent: %w", err)
+	}
+
+	log.Printf("[cli] starting TUI with model %s/%s (%d plugins, sessions: %s)",
+		cfg.Model.Provider, cfg.Model.Name, len(adkPlugins), cfg.Session.HistoryPath)
+	return runTUI(ctx, a, cfg, runner.PluginConfig{Plugins: adkPlugins}, sessMgr)
 }

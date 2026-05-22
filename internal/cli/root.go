@@ -25,11 +25,11 @@ TUI interface, and autonomous reflection modes.`,
 		cfg, err = config.Load(configPath)
 		return err
 	},
+	RunE: RunServe,
 }
 
 func init() {
 	rootCmd.PersistentFlags().String("config", "", "path to config file (default: ./config.yaml)")
-	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(configureCmd)
 	rootCmd.AddCommand(reflectCmd)

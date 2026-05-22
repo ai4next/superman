@@ -1,5 +1,7 @@
 # Superman
 
+![Logo](assets/banner.png)
+
 General-purpose autonomous AI agent. Multi-model support, 9 built-in tools, layered memory.
 
 ## Quick Start
@@ -12,7 +14,7 @@ cp config.example.yaml config.yaml
 export OPENAI_API_KEY=sk-...
 
 # Start the TUI
-go run . serve
+go run .
 
 # Or run a single prompt
 go run . run "What's in this directory?"
@@ -31,12 +33,12 @@ go run . run "What's in this directory?"
 
 | Command | Description |
 |---------|-------------|
-| `superman serve` | Start interactive TUI chat |
-| `superman run "prompt"` | Run a single prompt, print response |
-| `superman run -f prompt.txt` | Run a prompt from a file |
-| `superman run -p "hello"` | Run with `--prompt` flag |
-| `superman reflect` | Start autonomous idle-watch mode |
-| `superman configure` | Interactive config wizard (coming soon) |
+| `sm` | Start interactive TUI chat |
+| `sm run "prompt"` | Run a single prompt, print response |
+| `sm run -f prompt.txt` | Run a prompt from a file |
+| `sm run -p "hello"` | Run with `--prompt` flag |
+| `sm reflect` | Start autonomous idle-watch mode |
+| `sm configure` | Interactive config wizard (coming soon) |
 
 ## Configuration
 
@@ -90,7 +92,7 @@ superman/
 │   │   ├── prompt/system.txt      # System prompt
 │   │   └── tools/                 # 9 tool implementations (code_run, file_*, web_*, etc.)
 │   ├── config/                    # YAML + env config (viper, Duration decode hook)
-│   ├── cli/                       # Cobra CLI commands (serve, run, reflect, configure)
+│   ├── cli/                       # Cobra CLI commands (run, reflect, configure)
 │   ├── tui/                       # Bubble Tea TUI
 │   │   ├── app.go                 # Main TUI model, cursor writer, event handling
 │   │   ├── components/            # Chat, input line, toolbar renderers
