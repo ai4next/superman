@@ -3,7 +3,7 @@
 
 ![Logo](assets/banner.png)
 
-General-purpose autonomous AI agent. Multi-model support, 13 built-in tools, layered memory, expert group.
+General-purpose autonomous AI agent. Multi-model support, 8 built-in tools, flat-file memory, expert delegation.
 
 ## Design Philosophy
 
@@ -34,13 +34,11 @@ go run . run "What's in this directory?"
 ## Features
 
 - **Multi-model support** — Gemini (Vertex AI), OpenAI, DeepSeek, Claude, Ollama, and any OpenAI-compatible API
-- **13 built-in tools** — code execution, file read/write/patch, web scanning, browser execution, user interaction, working memory, long-term memory, memory search, expert query/create/delegate
-- **Layered memory (L0-L4)** — SOP rules, memory index, persistent storage, session archives, historical session compression
-- **Expert group** — sub-agent dispatch with lifecycle management (draft → active → mature → archived), automatic extraction from usage patterns
-- **Plugin system** — memory sync, token tracking, tool logging, session reaper
+- **8 built-in tools** — code execution, file read/write/patch, web scanning, browser execution, user interaction, expert delegation
+- **Flat-file memory (L0-L3)** — runtime index (L0), global facts (L1), SOP files (L2), session archive (L3)
+- **Expert delegation** — dispatch tasks to expert sub-agents with isolated memory
+- **Plugin system** — unified run/model/tool logging and session reaper
 - **TUI interface** — Bubble Tea + Lipgloss, dark theme, Emacs-style keybindings
-- **Autonomous modes** — idle-triggered reflection and scheduled task execution
-- **Pattern analysis** — automatic expert draft generation from repeated tool chains
 - **Hook system** — 11 lifecycle event hooks (before/after run, tool, model, etc.) with external script execution via JSON stdin/stdout protocol
 - **Skill system** — filesystem-based skills auto-loaded via ADK skilltoolset, compatible with Claude Code SKILL.md format
 
@@ -70,13 +68,12 @@ tools:
   code_run:
     enabled: true
     timeout: 30s
-    workspace: ./workspace
   web_scan:
     enabled: true
   # ... each tool can be individually enabled/disabled
 
 plugins:
-  - name: memory_sync
+  - name: logger
     enabled: true
 ```
 
@@ -86,18 +83,13 @@ Environment variables override config: `SUPERMAN_MODEL_PROVIDER=openai`, `SUPERM
 
 | Tool | Description |
 |------|-------------|
-| `code_run` | Execute Python/Shell code in a sandboxed workspace |
-| `file_read` | Read files with line offset, limit, and keyword search |
-| `file_write` | Create, overwrite, or append files |
-| `file_patch` | Precise edits via old_string → new_string replacement |
+| `code_run` | Execute Python/Shell code |
+| `read` | Read file lines |
+| `write` | Write files |
+| `patch` | Replace one exact text match in a file |
 | `web_scan` | Fetch web pages, strip HTML, return text (SSRF-protected) |
-| `web_execute` | Browser JS execution (requires future ChromeDP driver) |
+| `web_execute` | Browser JavaScript execution through ChromeDP; can reuse a configured Chrome profile or remote debugging endpoint |
 | `ask_user` | Interrupt to ask the user a question |
-| `checkpoint` | Save/retrieve working notes during a task |
-| `long_term_memory` | Persist important information across sessions |
-| `search_memory` | Search past conversations for relevant information |
-| `query_experts` | Find expert agents matching the current task |
-| `create_expert` | Define new specialized expert agents on the fly |
 | `delegate_to_expert` | Delegate a task to an expert for independent execution |
 
 ## Hooks & Skills
@@ -125,7 +117,7 @@ Example script (`hooks/before_tool/audit.sh`):
 
 ```bash
 #!/bin/sh
-# stdin: {"event":"before_tool","tool_name":"file_write","tool_args":{...}}
+# stdin: {"event":"before_tool","tool_name":"write","tool_args":{...}}
 echo '{"allow": true}'
 # Return {"allow": false, "reason": "..."} to block the tool
 ```
@@ -147,7 +139,7 @@ Example (`skills/code-review/SKILL.md`):
 ---
 name: code-review
 description: Professional code review for PRs and changes
-allowed-tools: [file_read, file_patch, web_scan]
+allowed-tools: [read, patch, web_scan]
 ---
 
 You are a code review expert. Focus on:
@@ -165,7 +157,7 @@ superman/
 │   ├── agent/
 │   │   ├── agent.go                 # Agent factory with memory/SOP injection
 │   │   ├── prompt/system.txt        # System prompt
-│   │   └── tools/                   # 13 tool implementations
+│   │   └── tools/                   # 8 tool implementations
 │   ├── config/                      # YAML + env config (viper)
 │   ├── cli/                         # Cobra CLI commands (run, reflect, configure)
 │   ├── tui/                         # Bubble Tea TUI
@@ -173,13 +165,12 @@ superman/
 │   │   ├── components/              # Chat, input line, toolbar renderers
 │   │   └── styles/                  # Dark theme
 │   ├── model/                       # Multi-provider LLM factory
-│   ├── memory/                      # L0-L4 layered memory system
+│   ├── memory/                      # L0-L3 flat-file memory (rules, profile, SOP, sessions)
 │   ├── session/                     # Session manager with JSONL persistence
 │   ├── plugin/                      # Plugin registry + built-ins
-│   ├── hook/                         # Hook manager + script runner
+│   ├── hook/                        # Hook manager + script runner
 │   ├── reflect/                     # Autonomous idle watcher + scheduler
-│   └── expert/                      # Expert group (registry, delegate,
-│                                    #   analyzer, stats, FTS5 index)
+│   └── expert/                      # Expert registry with Spec definitions
 ├── hooks/                            # Hook scripts (convention-based, 11 event dirs)
 ├── skills/                           # Skill definitions (ADK skilltoolset)
 ├── config.example.yaml
@@ -192,29 +183,22 @@ superman/
 
 ## Runtime Directory
 
-All runtime data is stored under `cfg.Dir` (`~/.sm/` by default), automatically created on first run:
+All runtime data is stored under `workspace` in `config.yaml`. If omitted, it defaults to `$HOME/.sm`. The directory is created on first run:
 
 ```
-~/.sm/                                    # cfg.Dir (default: $HOME/.sm)
+~/.sm/                                    # workspace (default: $HOME/.sm)
 ├── config.yaml                           # User configuration (created by `sm configure`)
 ├── tui.log                               # TUI runtime log (redirected for display safety)
 ├── hooks/                                # Hook event scripts (11 lifecycle events)
 ├── skills/                               # Skill definitions (SKILL.md)
-├── superman/
-│   ├── experts/                          # Expert YAML definitions (auto-managed)
-│   └── memory/                           # Superman's isolated layered memory
-│       ├── l0/                           # L0 SOP rule templates (*.md)
-│       ├── l1/index.txt                  # L1 hot memory index (auto-rebuilt)
-│       ├── l2/entries.jsonl              # L2 persistent working memory
-│       ├── l3/archive.jsonl              # L3 long-term archived memory
-│       ├── l4/                           # L4 compressed session archives
-│       └── candidates/                   # Evolution candidates (review-only)
-│           ├── sop/
-│           └── experts/candidates.jsonl  # Expert extraction candidates
+├── memory/                               # Superman's flat-file memory
+│   ├── l1.toml                           # L1 global facts
+│   ├── l2/                               # L2 SOP files (*.md)
+│   └── l3/raw_sessions/                  # L3 raw session JSONL archives
 └── experts/
     └── {expert_name}/
         ├── calls.jsonl                   # Expert consult/delegate call log
-        └── memory/                       # Expert's isolated layered memory
+        └── memory/                       # Expert's isolated memory
 ```
 
 ## Build

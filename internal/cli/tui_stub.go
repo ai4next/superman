@@ -5,12 +5,12 @@ import (
 
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
+	"google.golang.org/adk/session"
 
 	"github.com/ai4next/superman/internal/config"
-	"github.com/ai4next/superman/internal/session"
 	"github.com/ai4next/superman/internal/tui"
 )
 
-func runTUI(ctx context.Context, a agent.Agent, cfg *config.Config, pluginCfg runner.PluginConfig, sessMgr *session.Manager) error {
-	return tui.Run(ctx, a, cfg, pluginCfg, sessMgr.Service())
+func runTUI(ctx context.Context, a agent.Agent, cfg *config.Config, pluginCfg runner.PluginConfig, sessSvc session.Service) error {
+	return tui.Run(ctx, a, cfg, pluginCfg, sessSvc)
 }

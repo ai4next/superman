@@ -1,8 +1,9 @@
-package tools
+package tool
 
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"google.golang.org/adk/tool"
@@ -10,32 +11,31 @@ import (
 )
 
 type filePatchInput struct {
-	Path      string `json:"path" jsonschema:"Path to the file to patch"`
-	OldString string `json:"old_string" jsonschema:"The exact text to replace"`
-	NewString string `json:"new_string" jsonschema:"The text to replace it with"`
+	Path      string `json:"path" jsonschema:"File path"`
+	OldString string `json:"old_string" jsonschema:"Exact text to replace"`
+	NewString string `json:"new_string" jsonschema:"Replacement text"`
 }
 
 type filePatchOutput struct {
 	FilePath string `json:"file_path"`
 	Applied  bool   `json:"applied"`
-	Error    string `json:"error,omitempty"`
 }
 
-func newFilePatchTool(deps Dependencies) tool.Tool {
+func newPatchTool(deps Dependencies) tool.Tool {
 	handler := func(tctx tool.Context, input filePatchInput) (filePatchOutput, error) {
 		return patchFile(deps, input)
 	}
 	t, _ := functiontool.New(functiontool.Config{
-		Name:        "file_patch",
-		Description: "Make precise edits to a file by replacing old_string with new_string",
+		Name:        "patch",
+		Description: "Replace one exact text match in a file.",
 	}, handler)
 	return t
 }
 
 func patchFile(deps Dependencies, input filePatchInput) (filePatchOutput, error) {
-	abs, err := validatePath(input.Path, deps.Config.Tools.FilePatch.AllowedPaths)
+	abs, err := filepath.Abs(input.Path)
 	if err != nil {
-		return filePatchOutput{}, err
+		return filePatchOutput{}, fmt.Errorf("invalid path: %w", err)
 	}
 
 	data, err := os.ReadFile(abs)
@@ -47,18 +47,10 @@ func patchFile(deps Dependencies, input filePatchInput) (filePatchOutput, error)
 	count := strings.Count(content, input.OldString)
 
 	if count == 0 {
-		return filePatchOutput{
-			FilePath: abs,
-			Applied:  false,
-			Error:    fmt.Sprintf("old_string not found in file. File has %d lines.", len(strings.Split(content, "\n"))),
-		}, nil
+		return filePatchOutput{}, fmt.Errorf("old_string not found in file. File has %d lines.", len(strings.Split(content, "\n")))
 	}
 	if count > 1 {
-		return filePatchOutput{
-			FilePath: abs,
-			Applied:  false,
-			Error:    fmt.Sprintf("old_string found %d times in file. Provide more context to make it unique.", count),
-		}, nil
+		return filePatchOutput{}, fmt.Errorf("old_string found %d times in file. Provide more context to make it unique.", count)
 	}
 
 	newContent := strings.Replace(content, input.OldString, input.NewString, 1)

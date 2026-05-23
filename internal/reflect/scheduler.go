@@ -13,7 +13,7 @@ import (
 	"google.golang.org/adk/session"
 	"google.golang.org/genai"
 
-	"github.com/ai4next/superman/internal/config"
+	"github.com/ai4next/superman/internal/global"
 )
 
 // ScheduleTask defines a scheduled reflection task loaded from a JSON file.
@@ -28,22 +28,21 @@ type ScheduleTask struct {
 // from JSON files in a configured directory and executes enabled tasks.
 type Scheduler struct {
 	agent  agent.Agent
-	cfg    *config.Config
 	stopCh chan struct{}
 }
 
-// NewScheduler creates a new Scheduler with the given agent and configuration.
-func NewScheduler(a agent.Agent, cfg *config.Config) *Scheduler {
+// NewScheduler creates a new Scheduler with the given agent.
+func NewScheduler(a agent.Agent) *Scheduler {
 	return &Scheduler{
 		agent:  a,
-		cfg:    cfg,
 		stopCh: make(chan struct{}),
 	}
 }
 
 // Start begins the scheduler loop. It checks for enabled tasks every 5 minutes.
 func (s *Scheduler) Start(ctx context.Context) {
-	tasksDir := s.cfg.Reflect.Scheduler.TasksDir
+	cfg := global.Config()
+	tasksDir := cfg.Reflect.Scheduler.TasksDir
 	log.Printf("[scheduler] starting, tasks dir: %s", tasksDir)
 
 	ticker := time.NewTicker(5 * time.Minute)
@@ -97,7 +96,7 @@ func (s *Scheduler) executeTask(ctx context.Context, task ScheduleTask) {
 	sessionService := session.InMemoryService()
 	r, err := runner.New(runner.Config{
 		Agent:             s.agent,
-		AppName:           s.cfg.Session.AppName,
+		AppName:           global.Config().Session.AppName,
 		SessionService:    sessionService,
 		AutoCreateSession: true,
 	})

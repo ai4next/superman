@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
-	"time"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -14,115 +15,70 @@ import (
 	adksession "google.golang.org/adk/session"
 
 	"github.com/ai4next/superman/internal/agent"
-	"github.com/ai4next/superman/internal/agent/tools"
 	"github.com/ai4next/superman/internal/expert"
+	"github.com/ai4next/superman/internal/global"
 	"github.com/ai4next/superman/internal/memory"
 	"github.com/ai4next/superman/internal/model"
 	"github.com/ai4next/superman/internal/plugin"
-	"github.com/ai4next/superman/internal/session"
 	"github.com/ai4next/superman/internal/task"
+	"github.com/ai4next/superman/internal/tool"
 )
-
-// memorySearchAdapter wraps memory.Service to implement tools.MemorySearcher.
-type memorySearchAdapter struct {
-	svc *memory.Service
-}
-
-func (a *memorySearchAdapter) Search(ctx context.Context, query string) ([]tools.SearchResult, error) {
-	entries, err := a.svc.Search(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-	results := make([]tools.SearchResult, len(entries))
-	for i, e := range entries {
-		results[i] = tools.SearchResult{
-			ID:          e.ID,
-			Summary:     e.Summary,
-			Layer:       e.Layer,
-			Content:     e.Content,
-			Category:    e.Category,
-			Scope:       e.Scope,
-			Tags:        e.Tags,
-			Importance:  e.Importance,
-			Confidence:  e.Confidence,
-			AccessCount: e.AccessCount,
-			Supersedes:  e.Supersedes,
-		}
-		if !e.LastAccessedAt.IsZero() {
-			results[i].LastAccessedAt = e.LastAccessedAt.Format(time.RFC3339)
-		}
-	}
-	return results, nil
-}
 
 // RunServe launches the TUI chat interface. Shared by the root command and serve subcommand.
 func RunServe(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
+	cfg := global.Config()
 
 	// Model
-	llm := model.MustNew(ctx, cfg.Model)
+	llm, err := model.New(ctx, cfg.Model)
+	if err != nil {
+		return fmt.Errorf("create model: %w", err)
+	}
 
-	// Memory service (L1-L3) with file persistence
-	supermanMemoryDir := filepath.Join(cfg.Dir, "superman", "memory")
-	memSvc := memory.New(cfg.Memory.L1.MaxEntries, supermanMemoryDir)
+	// Memory service with file persistence
+	supermanMemoryDir := filepath.Join(cfg.Workspace, "memory")
+	memSvc := memory.New(supermanMemoryDir)
 	if err := memSvc.LoadFromDisk(); err != nil {
 		log.Printf("[cli] memory load warning: %v", err)
 	}
 
-	// L0 SOP store — load templates and inject into agent prompt
+	// Load SOP content from l2/ directory
 	var sopContent string
-	l0, err := memory.NewL0Store(filepath.Join(supermanMemoryDir, "l0"))
-	if err != nil {
-		log.Printf("[cli] L0Store warning: %v", err)
-	}
-	if l0 != nil {
-		rules := l0.All()
-		if len(rules) > 0 {
-			log.Printf("[cli] loaded %d L0 SOP rules", len(rules))
-			for name, content := range rules {
-				sopContent += "\n### " + name + "\n" + content + "\n"
-				log.Printf("[cli]   SOP: %s", name)
+	l2Dir := filepath.Join(supermanMemoryDir, "l2")
+	if files, err := os.ReadDir(l2Dir); err == nil {
+		for _, f := range files {
+			if f.IsDir() || !strings.HasSuffix(f.Name(), ".md") {
+				continue
+			}
+			data, _ := os.ReadFile(filepath.Join(l2Dir, f.Name()))
+			if len(data) > 0 {
+				sopContent += "\n### " + f.Name() + "\n" + string(data) + "\n"
 			}
 		}
 	}
 
-	// Background tasks (archiving, evolution, etc.)
-	tg := task.NewTickerGroup(ctx)
-	defer tg.Stop()
+	// Evolution service: ADK agent for memory consolidation + optional expert cultivation.
+	evolution, err := task.NewEvolution(llm)
+	if err != nil {
+		return fmt.Errorf("create evolution agent: %w", err)
+	}
+	go evolution.Loop(ctx)
 
-	tg.Go(cfg.Memory.L3.ArchiveInterval.AsDuration(), task.NewArchiveFn(memSvc, 48*time.Hour))
-
-	tg.Go(cfg.Memory.Evolution.Interval.AsDuration(), task.NewEvolutionFn(memSvc, filepath.Join(supermanMemoryDir, "candidates")))
-
-	// L4 archiver: compress old session files
-	tg.Go(cfg.Memory.L4.ArchiveInterval.AsDuration(), task.NewL4ArchiveFn(cfg.Session.HistoryPath, supermanMemoryDir, cfg.Memory.L4.SessionTTL.AsDuration()))
+	evolutionCh := evolution.SignalCh()
 
 	// Expert Registry
 	var expertRegistry *expert.Registry
+	var delegateRunner tool.DelegateRunner
 	if cfg.Expert.Enabled {
-		expertRegistry = expert.NewRegistry(cfg.Expert.Dir)
-		expertRegistry.SetRuntimeDir(filepath.Join(cfg.Dir, "experts"))
+		expertRegistry = expert.NewRegistry(cfg.ExpertDir())
 		if err := expertRegistry.LoadFromDisk(); err != nil {
 			log.Printf("[expert] load warning: %v", err)
 		}
+		delegateRunner = newDelegateService(llm, expertRegistry, evolutionCh)
 		log.Printf("[expert] loaded %d experts", len(expertRegistry.List()))
 	}
 
-	// Pattern analysis for expert discovery (Phase 2)
-	if cfg.Expert.Enabled && expertRegistry != nil {
-		patternAnalyzer := expert.NewAnalyzer(cfg.Session.HistoryPath, expertRegistry)
-		expertCandidateDir := filepath.Join(supermanMemoryDir, "candidates", "experts")
-		tg.Go(30*time.Minute, task.NewExpertAnalysisFn(patternAnalyzer, expertCandidateDir))
-	}
-
-	// Delegate runner for expert sub-agent execution (Phase 2)
-	var delegateRunner tools.DelegateRunner
-	if cfg.Expert.Enabled && expertRegistry != nil {
-		delegateRunner = newDelegateService(cfg, llm, expertRegistry)
-	}
-
-	// Session manager with JSONL persistence
-	sessMgr := session.New(adksession.InMemoryService(), cfg.Session.HistoryPath, cfg.Session.MaxTurns)
+	sessionService := adksession.InMemoryService()
 
 	// Plugins
 	var adkPlugins []*adkplugin.Plugin
@@ -140,17 +96,13 @@ func RunServe(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Create memory search adapter
-	searchAdapter := &memorySearchAdapter{svc: memSvc}
-
-	// Agent with memory service, search, and SOP templates
-	a, extraPlugins, err := agent.New(llm, cfg, memSvc, searchAdapter, sopContent, expertRegistry, delegateRunner)
+	a, extraPlugins, err := agent.New(llm, cfg, memSvc, sopContent, expertRegistry, delegateRunner, evolutionCh)
 	if err != nil {
 		return fmt.Errorf("create agent: %w", err)
 	}
 	adkPlugins = append(adkPlugins, extraPlugins...)
 
-	log.Printf("[cli] starting TUI with model %s/%s (%d plugins, sessions: %s)",
-		cfg.Model.Provider, cfg.Model.Name, len(adkPlugins), cfg.Session.HistoryPath)
-	return runTUI(ctx, a, cfg, runner.PluginConfig{Plugins: adkPlugins}, sessMgr)
+	log.Printf("[cli] starting TUI with model %s/%s (%d plugins)",
+		cfg.Model.Provider, cfg.Model.Name, len(adkPlugins))
+	return runTUI(ctx, a, cfg, runner.PluginConfig{Plugins: adkPlugins}, sessionService)
 }

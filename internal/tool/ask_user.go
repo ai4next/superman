@@ -1,4 +1,4 @@
-package tools
+package tool
 
 import (
 	"bufio"
@@ -11,7 +11,7 @@ import (
 )
 
 type askUserInput struct {
-	Question string `json:"question" jsonschema:"The question to ask the user"`
+	Question string `json:"question" jsonschema:"Question for the user"`
 }
 
 type askUserOutput struct {
@@ -25,7 +25,7 @@ func newAskUserTool(deps Dependencies) tool.Tool {
 	}
 	t, _ := functiontool.New(functiontool.Config{
 		Name:        "ask_user",
-		Description: "Interrupt execution to ask the user a question and wait for their response",
+		Description: "Ask the user.",
 	}, handler)
 	return t
 }

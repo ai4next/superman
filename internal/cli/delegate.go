@@ -2,12 +2,8 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"log"
-	"path/filepath"
 	"strings"
-	"time"
 
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/model"
@@ -16,96 +12,68 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/ai4next/superman/internal/agent"
-	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/expert"
+	"github.com/ai4next/superman/internal/global"
+	"github.com/ai4next/superman/internal/hook"
 	"github.com/ai4next/superman/internal/memory"
 )
 
-// delegateService runs experts through the same agent builder as Superman,
-// while keeping each expert's memory isolated.
+// delegateService runs experts through the same agent builder as Superman.
 type delegateService struct {
-	cfg      *config.Config
-	llm      model.LLM
-	registry *expert.Registry
+	llm         model.LLM
+	registry    *expert.Registry
+	evolutionCh chan<- hook.EvolutionSignal
 }
 
-func newDelegateService(cfg *config.Config, llm model.LLM, registry *expert.Registry) *delegateService {
-	return &delegateService{cfg: cfg, llm: llm, registry: registry}
+func newDelegateService(llm model.LLM, registry *expert.Registry, evolutionCh chan<- hook.EvolutionSignal) *delegateService {
+	return &delegateService{llm: llm, registry: registry, evolutionCh: evolutionCh}
 }
 
 func (ds *delegateService) RunDelegate(ctx context.Context, specName string, task string) (string, error) {
-	result, err := ds.RunDelegateResult(ctx, specName, expert.NewTask(task, nil))
-	if err != nil {
-		return "", err
-	}
-	if result.RawResponse != "" {
-		return result.RawResponse, nil
-	}
-	return result.Summary, nil
-}
-
-func (ds *delegateService) RunDelegateResult(ctx context.Context, specName string, task expert.ExpertTask) (*expert.ExpertResult, error) {
-	start := time.Now()
 	spec, err := ds.registry.Get(specName)
 	if err != nil {
-		return nil, fmt.Errorf("expert %q not found: %w", specName, err)
-	}
-	record := func(success bool) {
-		if recErr := ds.registry.RecordCall(spec.Name, expert.CallRecord{
-			Timestamp:  start,
-			TaskDesc:   task.Task,
-			Mode:       expert.ModeDelegate,
-			Success:    success,
-			DurationMs: time.Since(start).Milliseconds(),
-		}); recErr != nil {
-			log.Printf("[expert] record delegate call warning for %s: %v", spec.Name, recErr)
-		}
+		return "", fmt.Errorf("expert %q not found: %w", specName, err)
 	}
 
-	expertMemoryDir := filepath.Join(ds.cfg.Dir, "experts", spec.Name, "memory")
-	memSvc := memory.New(ds.cfg.Memory.L1.MaxEntries, expertMemoryDir)
+	cfg := global.Config()
+	expertMemoryDir := cfg.ExpertMemoryDir(spec.Name)
+	memSvc := memory.New(expertMemoryDir)
 	if err := memSvc.LoadFromDisk(); err != nil {
-		log.Printf("[expert] memory load warning for %s: %v", spec.Name, err)
+		return "", fmt.Errorf("load expert memory: %w", err)
 	}
-	searchAdapter := &memorySearchAdapter{svc: memSvc}
-
-	a, extraPlugins, err := agent.NewFromConfig(ds.llm, ds.cfg, agent.BuildConfig{
-		Name:              "expert-" + spec.Name,
-		Description:       spec.Summary,
-		Instruction:       spec.SystemPrompt + "\n\nReturn a JSON object matching ExpertResult: success, summary, findings, actions_taken, files_touched, tool_calls, confidence, risks, next_steps.",
+	a, extraPlugins, err := agent.NewFromConfig(ds.llm, cfg, agent.BuildConfig{
+		Name:              spec.Name,
+		Description:       spec.Name,
+		Instruction:       spec.SystemPrompt + "\n\nReturn only a concise plain-text summary of the delegated task result.",
 		MemoryService:     memSvc,
-		MemorySearcher:    searchAdapter,
 		EnableExpertTools: false,
+		EvolutionSignal: hook.EvolutionSignal{
+			Role:      "expert",
+			MemoryDir: expertMemoryDir,
+		},
+		EvolutionCh: ds.evolutionCh,
 	})
 	if err != nil {
-		record(false)
-		return nil, fmt.Errorf("create expert agent: %w", err)
+		return "", fmt.Errorf("create expert agent: %w", err)
 	}
 
 	sessionService := session.InMemoryService()
 	r, err := runner.New(runner.Config{
 		Agent:             a,
-		AppName:           ds.cfg.Session.AppName + "-expert",
+		AppName:           cfg.Session.AppName + "-expert",
 		SessionService:    sessionService,
 		PluginConfig:      runner.PluginConfig{Plugins: extraPlugins},
 		AutoCreateSession: true,
 	})
 	if err != nil {
-		record(false)
-		return nil, fmt.Errorf("create expert runner: %w", err)
+		return "", fmt.Errorf("create expert runner: %w", err)
 	}
 
-	payload, err := json.Marshal(task)
-	if err != nil {
-		record(false)
-		return nil, fmt.Errorf("marshal expert task: %w", err)
-	}
-	msg := genai.NewContentFromText(string(payload), "user")
+	msg := genai.NewContentFromText(task, "user")
 	var response strings.Builder
 	for evt, evtErr := range r.Run(ctx, "expert-user", "expert-"+spec.Name, msg, adkagent.RunConfig{}) {
 		if evtErr != nil {
-			record(false)
-			return nil, evtErr
+			return "", evtErr
 		}
 		if evt.Content != nil {
 			for _, part := range evt.Content.Parts {
@@ -113,42 +81,9 @@ func (ds *delegateService) RunDelegateResult(ctx context.Context, specName strin
 			}
 		}
 	}
-	result := parseExpertResult(response.String())
-	record(result.Success)
+	result := strings.TrimSpace(response.String())
+	if result == "" {
+		return "", fmt.Errorf("delegate returned an empty response")
+	}
 	return result, nil
-}
-
-func parseExpertResult(raw string) *expert.ExpertResult {
-	raw = strings.TrimSpace(raw)
-	result := &expert.ExpertResult{
-		Success:     true,
-		Summary:     raw,
-		Confidence:  0.5,
-		RawResponse: raw,
-	}
-	if raw == "" {
-		result.Success = false
-		result.Confidence = 0
-		return result
-	}
-	var parsed expert.ExpertResult
-	if err := json.Unmarshal([]byte(raw), &parsed); err == nil {
-		parsed.RawResponse = raw
-		if parsed.Confidence == 0 {
-			parsed.Confidence = 0.5
-		}
-		return &parsed
-	}
-	if start := strings.Index(raw, "{"); start >= 0 {
-		if end := strings.LastIndex(raw, "}"); end > start {
-			if err := json.Unmarshal([]byte(raw[start:end+1]), &parsed); err == nil {
-				parsed.RawResponse = raw
-				if parsed.Confidence == 0 {
-					parsed.Confidence = 0.5
-				}
-				return &parsed
-			}
-		}
-	}
-	return result
 }

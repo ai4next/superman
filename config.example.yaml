@@ -1,3 +1,5 @@
+workspace: ${HOME}/.sm
+
 model:
   provider: openai
   name: gpt-4o
@@ -12,47 +14,36 @@ tools:
     enabled: true
     timeout: 30s
     allowed_languages: [python, bash, sh]
-    workspace: ./workspace
-  file_read:
+  read:
     enabled: true
     max_size: 10485760
-    allowed_paths: ["./", "/tmp/"]
-  file_write:
+  write:
     enabled: true
     max_size: 10485760
-    allowed_paths: ["./workspace/", "/tmp/"]
-  file_patch:
+  patch:
     enabled: true
-    allowed_paths: ["./", "/tmp/"]
   web_scan:
     enabled: true
     timeout: 15s
   web_execute:
     enabled: false
+    timeout: 15s
+    headless: false
+    user_data_dir: ${HOME}/.sm/chrome-profile
+    browser_path: ""
+    remote_debugging_url: ""
   ask_user:
-    enabled: true
-  checkpoint:
-    enabled: true
-  long_term_memory:
     enabled: true
 
 memory:
   l1:
-    max_entries: 50
-  l3:
-    archive_interval: 24h
-  l4:
-    archive_interval: 6h
-    session_ttl: 48h
-  evolution:
-    interval: 30m
+    max_index_items: 50
+    max_sections: 100
+  l2:
+    max_index_items: 50
 
 plugins:
-  - name: memory_sync
-    enabled: true
-  - name: token_tracker
-    enabled: true
-  - name: tool_logger
+  - name: logger
     enabled: true
   - name: session_reaper
     enabled: true
@@ -62,7 +53,6 @@ plugins:
 
 session:
   max_turns: 75
-  history_path: ./data/sessions
 
 reflect:
   autonomous:
@@ -72,5 +62,4 @@ reflect:
 
 expert:
   enabled: true
-  dir: ${HOME}/.sm/superman/experts
-  top_k: 2
+  max_count: 10

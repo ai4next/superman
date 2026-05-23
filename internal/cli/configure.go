@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+
+	"github.com/ai4next/superman/internal/global"
 )
 
 var configureCmd = &cobra.Command{
@@ -45,18 +47,19 @@ var configureCmd = &cobra.Command{
 		}
 
 		// Show current config summary
-		if cfg != nil {
+		if cfg := global.Config(); cfg != nil {
 			fmt.Println()
 			fmt.Println("Current configuration:")
 			fmt.Printf("  Provider:  %s\n", cfg.Model.Provider)
 			fmt.Printf("  Model:     %s\n", cfg.Model.Name)
 			fmt.Printf("  Server:    %s\n", cfg.Server.Addr)
-			fmt.Printf("  Tools:     code_run=%v file_read=%v file_write=%v file_patch=%v web_scan=%v ask_user=%v\n",
+			fmt.Printf("  Tools:     code_run=%v read=%v write=%v patch=%v web_scan=%v web_execute=%v ask_user=%v\n",
 				cfg.Tools.CodeRun.Enabled,
-				cfg.Tools.FileRead.Enabled,
-				cfg.Tools.FileWrite.Enabled,
-				cfg.Tools.FilePatch.Enabled,
+				cfg.Tools.Read.Enabled,
+				cfg.Tools.Write.Enabled,
+				cfg.Tools.Patch.Enabled,
 				cfg.Tools.WebScan.Enabled,
+				cfg.Tools.WebExecute.Enabled,
 				cfg.Tools.AskUser.Enabled,
 			)
 			fmt.Printf("  Max turns: %d\n", cfg.Session.MaxTurns)

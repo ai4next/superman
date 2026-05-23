@@ -1,4 +1,4 @@
-package tools
+package tool
 
 import (
 	"fmt"
@@ -10,9 +10,9 @@ import (
 )
 
 type fileWriteInput struct {
-	Path    string `json:"path" jsonschema:"Path to the file to write"`
-	Content string `json:"content" jsonschema:"Content to write to the file"`
-	Mode    string `json:"mode,omitempty" jsonschema:"Write mode: overwrite (default) or append"`
+	Path    string `json:"path" jsonschema:"File path"`
+	Content string `json:"content" jsonschema:"File content"`
+	Mode    string `json:"mode,omitempty" jsonschema:"overwrite or append"`
 }
 
 type fileWriteOutput struct {
@@ -21,25 +21,25 @@ type fileWriteOutput struct {
 	Mode     string `json:"mode"`
 }
 
-func newFileWriteTool(deps Dependencies) tool.Tool {
+func newWriteTool(deps Dependencies) tool.Tool {
 	handler := func(tctx tool.Context, input fileWriteInput) (fileWriteOutput, error) {
 		return writeFile(deps, input)
 	}
 	t, _ := functiontool.New(functiontool.Config{
-		Name:        "file_write",
-		Description: "Create, overwrite, or append to a file",
+		Name:        "write",
+		Description: "Write a file.",
 	}, handler)
 	return t
 }
 
 func writeFile(deps Dependencies, input fileWriteInput) (fileWriteOutput, error) {
-	abs, err := validatePath(input.Path, deps.Config.Tools.FileWrite.AllowedPaths)
+	abs, err := filepath.Abs(input.Path)
 	if err != nil {
-		return fileWriteOutput{}, err
+		return fileWriteOutput{}, fmt.Errorf("invalid path: %w", err)
 	}
 
-	if len(input.Content) > int(deps.Config.Tools.FileWrite.MaxSize) {
-		return fileWriteOutput{}, fmt.Errorf("content too large: %d bytes (max %d)", len(input.Content), deps.Config.Tools.FileWrite.MaxSize)
+	if len(input.Content) > int(deps.Config.Tools.Write.MaxSize) {
+		return fileWriteOutput{}, fmt.Errorf("content too large: %d bytes (max %d)", len(input.Content), deps.Config.Tools.Write.MaxSize)
 	}
 
 	mode := input.Mode

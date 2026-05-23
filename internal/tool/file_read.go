@@ -1,8 +1,9 @@
-package tools
+package tool
 
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"google.golang.org/adk/tool"
@@ -10,10 +11,10 @@ import (
 )
 
 type fileReadInput struct {
-	Path    string `json:"path" jsonschema:"Path to the file to read"`
-	Offset  int    `json:"offset,omitempty" jsonschema:"Line number to start reading from (1-based)"`
-	Limit   int    `json:"limit,omitempty" jsonschema:"Maximum number of lines to read"`
-	Keyword string `json:"keyword,omitempty" jsonschema:"Search keyword to locate before reading"`
+	Path    string `json:"path" jsonschema:"File path"`
+	Offset  int    `json:"offset,omitempty" jsonschema:"Start line, 1-based"`
+	Limit   int    `json:"limit,omitempty" jsonschema:"Max lines"`
+	Keyword string `json:"keyword,omitempty" jsonschema:"Start at first matching line"`
 }
 
 type fileReadOutput struct {
@@ -24,29 +25,29 @@ type fileReadOutput struct {
 	FilePath   string `json:"file_path"`
 }
 
-func newFileReadTool(deps Dependencies) tool.Tool {
+func newReadTool(deps Dependencies) tool.Tool {
 	handler := func(tctx tool.Context, input fileReadInput) (fileReadOutput, error) {
 		return readFile(deps, input)
 	}
 	t, _ := functiontool.New(functiontool.Config{
-		Name:        "file_read",
-		Description: "Read a file from the filesystem with optional offset, limit, and keyword search",
+		Name:        "read",
+		Description: "Read file lines.",
 	}, handler)
 	return t
 }
 
 func readFile(deps Dependencies, input fileReadInput) (fileReadOutput, error) {
-	abs, err := validatePath(input.Path, deps.Config.Tools.FileRead.AllowedPaths)
+	abs, err := filepath.Abs(input.Path)
 	if err != nil {
-		return fileReadOutput{}, err
+		return fileReadOutput{}, fmt.Errorf("invalid path: %w", err)
 	}
 
 	info, err := os.Stat(abs)
 	if err != nil {
 		return fileReadOutput{}, fmt.Errorf("file not found: %w", err)
 	}
-	if info.Size() > deps.Config.Tools.FileRead.MaxSize {
-		return fileReadOutput{}, fmt.Errorf("file too large: %d bytes (max %d)", info.Size(), deps.Config.Tools.FileRead.MaxSize)
+	if info.Size() > deps.Config.Tools.Read.MaxSize {
+		return fileReadOutput{}, fmt.Errorf("file too large: %d bytes (max %d)", info.Size(), deps.Config.Tools.Read.MaxSize)
 	}
 
 	data, err := os.ReadFile(abs)

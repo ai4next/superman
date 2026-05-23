@@ -11,25 +11,24 @@ import (
 	"google.golang.org/adk/session"
 	"google.golang.org/genai"
 
-	"github.com/ai4next/superman/internal/config"
+	"github.com/ai4next/superman/internal/global"
 )
 
 // IdleWatcher monitors user activity and triggers autonomous reflection
 // after a configurable idle timeout.
 type IdleWatcher struct {
 	agent       agent.Agent
-	cfg         *config.Config
 	lastActive  time.Time
 	mu          sync.Mutex
 	idleTimeout time.Duration
 	stopCh      chan struct{}
 }
 
-// NewIdleWatcher creates a new IdleWatcher with the given agent and configuration.
-func NewIdleWatcher(a agent.Agent, cfg *config.Config) *IdleWatcher {
+// NewIdleWatcher creates a new IdleWatcher with the given agent.
+func NewIdleWatcher(a agent.Agent) *IdleWatcher {
+	cfg := global.Config()
 	return &IdleWatcher{
 		agent:       a,
-		cfg:         cfg,
 		lastActive:  time.Now(),
 		idleTimeout: cfg.Reflect.Autonomous.IdleTimeout.AsDuration(),
 		stopCh:      make(chan struct{}),
@@ -77,7 +76,7 @@ func (w *IdleWatcher) execute(ctx context.Context) {
 	sessionService := session.InMemoryService()
 	r, err := runner.New(runner.Config{
 		Agent:             w.agent,
-		AppName:           w.cfg.Session.AppName,
+		AppName:           global.Config().Session.AppName,
 		SessionService:    sessionService,
 		AutoCreateSession: true,
 	})

@@ -3,7 +3,7 @@
 
 ![Logo](assets/banner.png)
 
-通用自治 AI Agent。多模型支持、13 个内建工具、分层记忆、专家团。
+通用自治 AI Agent。多模型支持、8 个内建工具、扁平文件记忆、专家委托。
 
 ## 设计哲学
 
@@ -34,13 +34,11 @@ go run . run "这个目录里有什么？"
 ## 功能特性
 
 - **多模型支持** — Gemini (Vertex AI)、OpenAI、DeepSeek、Claude、Ollama 及任何兼容 OpenAI 的 API
-- **13 个内建工具** — 代码执行、文件读写/编辑、网页抓取、浏览器操作、用户交互、工作笔记、长期记忆、记忆检索、专家查询/创建/委托
-- **分层记忆 (L0-L4)** — SOP 规则、记忆索引、持久存储、会话归档、历史会话压缩
-- **专家团** — 子 Agent 调度，生命周期管理（草稿 → 活跃 → 成熟 → 归档），从使用模式自动萃取
-- **插件系统** — 记忆同步、Token 追踪、工具日志、会话回收
+- **8 个内建工具** — 代码执行、文件读写/编辑、网页抓取、浏览器操作、用户交互、专家委托
+- **扁平文件记忆 (L0-L3)** — 运行时索引 (L0)、全局事实 (L1)、SOP 文件 (L2)、会话归档 (L3)
+- **专家委托** — 将任务分发给独立记忆的专家子 Agent
+- **插件系统** — 统一 run/model/tool 日志、会话回收
 - **TUI 界面** — Bubble Tea + Lipgloss，暗色主题，Emacs 风格键绑定
-- **自主模式** — 空闲触发反思 + 定时任务执行
-- **模式分析** — 从重复工具链中自动生成专家草稿
 - **Hook 系统** — 11 种生命周期事件钩子（run/tool/model 等前后），通过 JSON stdin/stdout 协议执行外部脚本
 - **Skill 系统** — 基于文件系统的技能自动加载（ADK skilltoolset），兼容 Claude Code SKILL.md 格式
 
@@ -70,13 +68,12 @@ tools:
   code_run:
     enabled: true
     timeout: 30s
-    workspace: ./workspace
   web_scan:
     enabled: true
   # ... 每个工具可单独启用/禁用
 
 plugins:
-  - name: memory_sync
+  - name: logger
     enabled: true
 ```
 
@@ -86,18 +83,13 @@ plugins:
 
 | 工具 | 说明 |
 |------|------|
-| `code_run` | 在沙箱工作区中执行 Python/Shell 代码 |
-| `file_read` | 读取文件，支持行偏移、限制和关键字搜索 |
-| `file_write` | 创建、覆写或追加文件 |
-| `file_patch` | 通过 old_string → new_string 替换实现精确编辑 |
+| `code_run` | 执行 Python/Shell 代码 |
+| `read` | 读取文件行 |
+| `write` | 写入文件 |
+| `patch` | 替换文件中的一个精确文本匹配 |
 | `web_scan` | 抓取网页，剥离 HTML，返回纯文本（SSRF 防护） |
-| `web_execute` | 浏览器 JavaScript 执行（需要未来 ChromeDP 驱动） |
+| `web_execute` | 通过 ChromeDP 执行浏览器 JavaScript；可复用配置的 Chrome 用户目录或远程调试端点 |
 | `ask_user` | 中断并向用户提问 |
-| `checkpoint` | 在任务过程中保存/读取工作笔记 |
-| `long_term_memory` | 跨会话持久化重要信息 |
-| `search_memory` | 搜索历史对话中的相关信息 |
-| `query_experts` | 查找匹配当前任务的专家 Agent |
-| `create_expert` | 动态定义新的专业 Agent |
 | `delegate_to_expert` | 将任务委托给专家独立执行 |
 
 ## Hooks & Skills
@@ -125,7 +117,7 @@ hooks/
 
 ```bash
 #!/bin/sh
-# stdin: {"event":"before_tool","tool_name":"file_write","tool_args":{...}}
+# stdin: {"event":"before_tool","tool_name":"write","tool_args":{...}}
 echo '{"allow": true}'
 # 返回 {"allow": false, "reason": "..."} 可阻止工具执行
 ```
@@ -147,7 +139,7 @@ skills/
 ---
 name: code-review
 description: 专业的代码审查技能，用于 review PR 和代码变更
-allowed-tools: [file_read, file_patch, web_scan]
+allowed-tools: [read, patch, web_scan]
 ---
 
 你是一个代码审查专家。审查时关注：
@@ -165,7 +157,7 @@ superman/
 │   ├── agent/
 │   │   ├── agent.go                 # Agent 工厂（注入记忆/SOP）
 │   │   ├── prompt/system.txt        # 系统提示词
-│   │   └── tools/                   # 13 个工具实现
+│   │   └── tools/                   # 8 个工具实现
 │   ├── config/                      # YAML + 环境变量配置 (viper)
 │   ├── cli/                         # Cobra CLI 命令 (run, reflect, configure)
 │   ├── tui/                         # Bubble Tea TUI
@@ -173,13 +165,12 @@ superman/
 │   │   ├── components/              # 聊天、输入栏、工具栏渲染
 │   │   └── styles/                  # 暗色主题
 │   ├── model/                       # 多 Provider LLM 工厂
-│   ├── memory/                      # L0-L4 分层记忆系统
+│   ├── memory/                      # L0-L3 扁平文件记忆（规则、画像、SOP、会话）
 │   ├── session/                     # 会话管理器（JSONL 持久化）
 │   ├── plugin/                      # 插件注册中心 + 内建插件
-│   ├── hook/                         # Hook 管理器 + 脚本执行器
+│   ├── hook/                        # Hook 管理器 + 脚本执行器
 │   ├── reflect/                     # 自主空闲监听 + 调度器
-│   └── expert/                      # 专家团（注册中心、委托执行、
-│                                    #   分析器、统计、FTS5 索引）
+│   └── expert/                      # 专家注册中心与 Spec 定义
 ├── hooks/                            # Hook 脚本目录（约定式，11 个事件子目录）
 ├── skills/                           # Skill 定义目录（ADK skilltoolset）
 ├── config.example.yaml
@@ -192,29 +183,22 @@ superman/
 
 ## 运行时目录
 
-所有运行时数据都存储在 `cfg.Dir`（默认为 `~/.sm/`），首次启动时自动创建：
+所有运行时数据都存储在 `workspace`（默认为 `~/.sm/`），首次启动时自动创建：
 
 ```
-~/.sm/                                    # cfg.Dir（默认: $HOME/.sm）
+~/.sm/                                    # workspace（默认: $HOME/.sm）
 ├── config.yaml                           # 用户配置（由 `sm configure` 创建）
 ├── tui.log                               # TUI 运行时日志（重定向以防干扰界面显示）
 ├── hooks/                                # Hook 事件脚本（11 种生命周期事件）
 ├── skills/                               # Skill 定义（SKILL.md）
-├── superman/
-│   ├── experts/                          # 专家 YAML 定义（自动管理）
-│   └── memory/                           # superman 独立分层记忆
-│       ├── l0/                           # L0 SOP 规则模板（*.md）
-│       ├── l1/index.txt                  # L1 热记忆索引（自动重建）
-│       ├── l2/entries.jsonl              # L2 持久化工作记忆
-│       ├── l3/archive.jsonl              # L3 长期归档记忆
-│       ├── l4/                           # L4 压缩会话归档
-│       └── candidates/                   # 进化候选（仅审查，不自动写入）
-│           ├── sop/
-│           └── experts/candidates.jsonl  # 专家萃取候选
+├── memory/                               # superman 的扁平文件记忆
+│   ├── l1.toml                           # L1 全局事实
+│   ├── l2/                               # L2 SOP 文件（*.md）
+│   └── l3/raw_sessions/                  # L3 原始会话 JSONL 归档
 └── experts/
     └── {expert_name}/
         ├── calls.jsonl                   # 专家咨询/委托调用记录
-        └── memory/                       # 专家独立分层记忆
+        └── memory/                       # 专家独立记忆
 ```
 
 ## 构建

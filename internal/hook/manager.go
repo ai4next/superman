@@ -2,6 +2,7 @@ package hook
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/model"
 	"google.golang.org/adk/plugin"
+	adksession "google.golang.org/adk/session"
 	"google.golang.org/adk/tool"
 	"google.golang.org/genai"
 )
@@ -34,16 +36,39 @@ var eventDirs = []string{
 // Manager scans the hooks/ directory and creates an ADK Plugin that
 // dispatches to scripts for each lifecycle event.
 type Manager struct {
-	baseDir string
-	scripts map[string][]string // event name → sorted script paths
+	baseDir     string
+	scripts     map[string][]string // event name → sorted script paths
+	signal      EvolutionSignal
+	evolutionCh chan<- EvolutionSignal // background receiver notified after each run
+}
+
+// EvolutionSignal describes one completed agent session that should be
+// processed by background services such as evolution.
+type EvolutionSignal struct {
+	SessionID  string
+	AgentName  string
+	Role       string
+	MemoryDir  string
+	SessionDir string
+	ExpertDir  string
 }
 
 // NewManager scans the base directory for hook subdirectories and
 // builds the event→script mapping. Missing directories are silently skipped.
-func NewManager(baseDir string) (*Manager, error) {
+// evolutionChs receives completed-run signals for background processing.
+func NewManager(baseDir string, evolutionCh chan<- EvolutionSignal) (*Manager, error) {
+	return NewManagerWithSignal(baseDir, EvolutionSignal{}, evolutionCh)
+}
+
+// NewManagerWithSignal works like NewManager, but includes static metadata
+// about the agent in every completed-run signal.
+func NewManagerWithSignal(baseDir string, signal EvolutionSignal, evolutionCh chan<- EvolutionSignal) (*Manager, error) {
+	// Filter out nil channels
 	m := &Manager{
-		baseDir: baseDir,
-		scripts: make(map[string][]string),
+		baseDir:     baseDir,
+		scripts:     make(map[string][]string),
+		signal:      signal,
+		evolutionCh: evolutionCh,
 	}
 
 	for _, evt := range eventDirs {
@@ -180,6 +205,7 @@ func (m *Manager) afterRun(ic agent.InvocationContext) {
 		Event:     "after_run",
 		SessionID: m.sessionID(ic),
 	})
+	m.signalAfterRun(ic)
 }
 
 // beforeAgent handles BeforeAgent.
@@ -201,6 +227,60 @@ func (m *Manager) afterAgent(ctx agent.CallbackContext) (*genai.Content, error) 
 		SessionID: m.sessionID(ctx),
 	})
 	return nil, nil
+}
+
+func (m *Manager) signalAfterRun(ic agent.InvocationContext) {
+	sid := m.sessionID(ic)
+	if sid == "" {
+		return
+	}
+
+	signal := m.signal
+	signal.SessionID = sid
+	sessionDir := signal.SessionDir
+	if signal.MemoryDir != "" {
+		sessionDir = filepath.Join(signal.MemoryDir, "l3", "raw_sessions")
+		signal.SessionDir = sessionDir
+	}
+	if sessionDir != "" && ic.Session() != nil {
+		if err := writeSessionJSONL(sessionDir, ic.Session()); err != nil {
+			log.Printf("[hook] persist session %s: %v", sid, err)
+		}
+	}
+
+	if m.evolutionCh != nil {
+		m.evolutionCh <- signal
+	}
+}
+
+func writeSessionJSONL(sessionDir string, sess adksession.Session) error {
+	if sessionDir == "" || sess == nil {
+		return nil
+	}
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		return fmt.Errorf("create session dir: %w", err)
+	}
+
+	path := filepath.Join(sessionDir, sess.ID()+".jsonl")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", path, err)
+	}
+	defer f.Close()
+
+	if sess.Events() == nil {
+		return nil
+	}
+	for event := range sess.Events().All() {
+		line, err := json.Marshal(event)
+		if err != nil {
+			return fmt.Errorf("marshal event: %w", err)
+		}
+		if _, err := f.Write(append(line, '\n')); err != nil {
+			return fmt.Errorf("write %s: %w", path, err)
+		}
+	}
+	return nil
 }
 
 // beforeModel handles BeforeModel.

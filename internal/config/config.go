@@ -1,18 +1,21 @@
 package config
 
-import "time"
+import (
+	"path/filepath"
+	"time"
+)
 
 // Config is the top-level configuration for the Superman agent.
 type Config struct {
-	Dir     string         `mapstructure:"dir"`
-	Model   ModelConfig    `mapstructure:"model"`
-	Server  ServerConfig   `mapstructure:"server"`
-	Tools   ToolsConfig    `mapstructure:"tools"`
-	Memory  MemoryConfig   `mapstructure:"memory"`
-	Plugins []PluginConfig `mapstructure:"plugins"`
-	Session SessionConfig  `mapstructure:"session"`
-	Reflect ReflectConfig  `mapstructure:"reflect"`
-	Expert  ExpertConfig   `mapstructure:"expert"`
+	Workspace string         `mapstructure:"workspace"`
+	Model     ModelConfig    `mapstructure:"model"`
+	Server    ServerConfig   `mapstructure:"server"`
+	Tools     ToolsConfig    `mapstructure:"tools"`
+	Memory    MemoryConfig   `mapstructure:"memory"`
+	Plugins   []PluginConfig `mapstructure:"plugins"`
+	Session   SessionConfig  `mapstructure:"session"`
+	Reflect   ReflectConfig  `mapstructure:"reflect"`
+	Expert    ExpertConfig   `mapstructure:"expert"`
 }
 
 // ModelConfig configures the LLM provider.
@@ -30,15 +33,13 @@ type ServerConfig struct {
 
 // ToolsConfig contains sub-configs for each tool.
 type ToolsConfig struct {
-	CodeRun        CodeRunConfig        `mapstructure:"code_run"`
-	FileRead       FileReadConfig       `mapstructure:"file_read"`
-	FileWrite      FileWriteConfig      `mapstructure:"file_write"`
-	FilePatch      FilePatchConfig      `mapstructure:"file_patch"`
-	WebScan        WebScanConfig        `mapstructure:"web_scan"`
-	WebExecute     WebExecuteConfig     `mapstructure:"web_execute"`
-	AskUser        AskUserConfig        `mapstructure:"ask_user"`
-	Checkpoint     CheckpointConfig     `mapstructure:"checkpoint"`
-	LongTermMemory LongTermMemoryConfig `mapstructure:"long_term_memory"`
+	CodeRun    CodeRunConfig    `mapstructure:"code_run"`
+	Read       ReadConfig       `mapstructure:"read"`
+	Write      WriteConfig      `mapstructure:"write"`
+	Patch      PatchConfig      `mapstructure:"patch"`
+	WebScan    WebScanConfig    `mapstructure:"web_scan"`
+	WebExecute WebExecuteConfig `mapstructure:"web_execute"`
+	AskUser    AskUserConfig    `mapstructure:"ask_user"`
 }
 
 // CodeRunConfig allows executing code snippets.
@@ -46,27 +47,23 @@ type CodeRunConfig struct {
 	Enabled          bool     `mapstructure:"enabled"`
 	Timeout          Duration `mapstructure:"timeout"`
 	AllowedLanguages []string `mapstructure:"allowed_languages"`
-	Workspace        string   `mapstructure:"workspace"`
 }
 
-// FileReadConfig allows reading local files.
-type FileReadConfig struct {
-	Enabled      bool     `mapstructure:"enabled"`
-	MaxSize      int64    `mapstructure:"max_size"`
-	AllowedPaths []string `mapstructure:"allowed_paths"`
+// ReadConfig allows reading local files.
+type ReadConfig struct {
+	Enabled bool  `mapstructure:"enabled"`
+	MaxSize int64 `mapstructure:"max_size"`
 }
 
-// FileWriteConfig allows writing local files.
-type FileWriteConfig struct {
-	Enabled      bool     `mapstructure:"enabled"`
-	MaxSize      int64    `mapstructure:"max_size"`
-	AllowedPaths []string `mapstructure:"allowed_paths"`
+// WriteConfig allows writing local files.
+type WriteConfig struct {
+	Enabled bool  `mapstructure:"enabled"`
+	MaxSize int64 `mapstructure:"max_size"`
 }
 
-// FilePatchConfig allows patching local files.
-type FilePatchConfig struct {
-	Enabled      bool     `mapstructure:"enabled"`
-	AllowedPaths []string `mapstructure:"allowed_paths"`
+// PatchConfig allows patching local files.
+type PatchConfig struct {
+	Enabled bool `mapstructure:"enabled"`
 }
 
 // WebScanConfig allows scraping web pages.
@@ -77,7 +74,12 @@ type WebScanConfig struct {
 
 // WebExecuteConfig allows automated browser actions.
 type WebExecuteConfig struct {
-	Enabled bool `mapstructure:"enabled"`
+	Enabled            bool     `mapstructure:"enabled"`
+	Timeout            Duration `mapstructure:"timeout"`
+	Headless           bool     `mapstructure:"headless"`
+	UserDataDir        string   `mapstructure:"user_data_dir"`
+	BrowserPath        string   `mapstructure:"browser_path"`
+	RemoteDebuggingURL string   `mapstructure:"remote_debugging_url"`
 }
 
 // AskUserConfig allows asking the user for input.
@@ -85,53 +87,25 @@ type AskUserConfig struct {
 	Enabled bool `mapstructure:"enabled"`
 }
 
-// CheckpointConfig enables checkpoint snapshots.
-type CheckpointConfig struct {
-	Enabled bool `mapstructure:"enabled"`
-}
-
-// LongTermMemoryConfig enables long-term memory storage.
-type LongTermMemoryConfig struct {
-	Enabled bool `mapstructure:"enabled"`
-}
-
 // MemoryConfig configures the memory subsystem.
 type MemoryConfig struct {
-	L0        L0Config        `mapstructure:"l0"`
-	L1        L1Config        `mapstructure:"l1"`
-	L2        L2Config        `mapstructure:"l2"`
-	L3        L3Config        `mapstructure:"l3"`
-	L4        L4Config        `mapstructure:"l4"`
-	Evolution EvolutionConfig `mapstructure:"evolution"`
+	L0 L0Config `mapstructure:"l0"`
+	L1 L1Config `mapstructure:"l1"`
+	L2 L2Config `mapstructure:"l2"`
 }
 
-// L0Config is for the Standard Operating Procedures memory level.
-type L0Config struct {
-}
+// L0Config configures the runtime L0 index.
+type L0Config struct{}
 
-// L1Config is for short-term agent memory.
+// L1Config configures TOML facts memory.
 type L1Config struct {
-	MaxEntries int `mapstructure:"max_entries"`
+	MaxIndexItems int `mapstructure:"max_index_items"`
+	MaxSections   int `mapstructure:"max_sections"`
 }
 
-// L2Config is for persistent working memory storage.
+// L2Config configures the SOP directory.
 type L2Config struct {
-}
-
-// L3Config is for long-term archived memory.
-type L3Config struct {
-	ArchiveInterval Duration `mapstructure:"archive_interval"`
-}
-
-// L4Config is for historical session archiving.
-type L4Config struct {
-	ArchiveInterval Duration `mapstructure:"archive_interval"`
-	SessionTTL      Duration `mapstructure:"session_ttl"`
-}
-
-// EvolutionConfig configures background memory evolution candidate generation.
-type EvolutionConfig struct {
-	Interval Duration `mapstructure:"interval"`
+	MaxIndexItems int `mapstructure:"max_index_items"`
 }
 
 // PluginConfig configures an individual plugin.
@@ -143,9 +117,10 @@ type PluginConfig struct {
 
 // SessionConfig configures session management.
 type SessionConfig struct {
-	AppName     string `mapstructure:"app_name"`
-	MaxTurns    int    `mapstructure:"max_turns"`
-	HistoryPath string `mapstructure:"history_path"`
+	AppName         string   `mapstructure:"app_name"`
+	MaxTurns        int      `mapstructure:"max_turns"`
+	ArchiveInterval Duration `mapstructure:"archive_interval"`
+	SessionTTL      Duration `mapstructure:"session_ttl"`
 }
 
 // ReflectConfig configures the reflection subsystem.
@@ -164,11 +139,26 @@ type SchedulerConfig struct {
 	TasksDir string `mapstructure:"tasks_dir"`
 }
 
-// ExpertConfig configures the expert group subsystem.
+// ExpertConfig configures the expert subsystem.
 type ExpertConfig struct {
-	Enabled bool   `mapstructure:"enabled"`
-	Dir     string `mapstructure:"dir"`
-	TopK    int    `mapstructure:"top_k"`
+	Enabled  bool `mapstructure:"enabled"`
+	MaxCount int  `mapstructure:"max_count"`
+}
+
+// ExpertDir returns the workspace-scoped expert directory.
+func (c *Config) ExpertDir() string {
+	if c == nil {
+		return ""
+	}
+	return filepath.Join(c.Workspace, "experts")
+}
+
+// ExpertMemoryDir returns the workspace-scoped memory directory for an expert.
+func (c *Config) ExpertMemoryDir(name string) string {
+	if c == nil || name == "" {
+		return ""
+	}
+	return filepath.Join(c.ExpertDir(), name, "memory")
 }
 
 // Duration unmarshals YAML duration strings like "30s", "2h", "24h".

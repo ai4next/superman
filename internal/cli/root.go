@@ -7,10 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ai4next/superman/internal/config"
+	"github.com/ai4next/superman/internal/global"
 )
-
-var cfg *config.Config
 
 // Execute runs the root command.
 func Execute() error {
@@ -18,23 +16,17 @@ func Execute() error {
 }
 
 // ensureDirs creates all runtime directories required by the agent.
-func ensureDirs(cfg *config.Config) error {
+func ensureDirs() error {
+	cfg := global.Config()
 	dirs := []string{
-		cfg.Dir,
-		filepath.Join(cfg.Dir, "skills"),
-		filepath.Join(cfg.Dir, "hooks"),
-		cfg.Expert.Dir,
-		cfg.Tools.CodeRun.Workspace,
-		cfg.Session.HistoryPath,
-		filepath.Join(cfg.Dir, "experts"),
-		filepath.Join(cfg.Dir, "superman", "memory"),
-		filepath.Join(cfg.Dir, "superman", "memory", "l0"),
-		filepath.Join(cfg.Dir, "superman", "memory", "l1"),
-		filepath.Join(cfg.Dir, "superman", "memory", "l2"),
-		filepath.Join(cfg.Dir, "superman", "memory", "l3"),
-		filepath.Join(cfg.Dir, "superman", "memory", "l4"),
-		filepath.Join(cfg.Dir, "superman", "memory", "candidates", "sop"),
-		filepath.Join(cfg.Dir, "superman", "memory", "candidates", "experts"),
+		cfg.Workspace,
+		filepath.Join(cfg.Workspace, "skills"),
+		filepath.Join(cfg.Workspace, "hooks"),
+		cfg.ExpertDir(),
+		filepath.Join(cfg.Workspace, "memory"),
+		filepath.Join(cfg.Workspace, "memory", "l2"),
+		filepath.Join(cfg.Workspace, "memory", "l3"),
+		filepath.Join(cfg.Workspace, "memory", "l3", "raw_sessions"),
 	}
 	for _, d := range dirs {
 		if d == "" {
@@ -55,12 +47,10 @@ var rootCmd = &cobra.Command{
 	TUI interface, and autonomous reflection modes.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		configPath, _ := cmd.Flags().GetString("config")
-		var err error
-		cfg, err = config.Load(configPath)
-		if err != nil {
+		if _, err := global.LoadConfig(configPath); err != nil {
 			return err
 		}
-		return ensureDirs(cfg)
+		return ensureDirs()
 	},
 	RunE: RunServe,
 }

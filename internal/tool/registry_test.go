@@ -1,4 +1,4 @@
-package tools
+package tool
 
 import (
 	"context"
@@ -11,11 +11,7 @@ import (
 
 type fakeExpertManager struct{}
 
-func (fakeExpertManager) Search(string) []*expert.Spec { return nil }
-func (fakeExpertManager) List() []*expert.Spec         { return nil }
-func (fakeExpertManager) Create(expert.Spec) (*expert.Spec, error) {
-	return nil, nil
-}
+func (fakeExpertManager) List() []*expert.Spec { return nil }
 
 type fakeDelegateRunner struct{}
 
@@ -42,10 +38,8 @@ func TestRegisterAllExpertToolsFlag(t *testing.T) {
 		ExpertTools:    false,
 	})
 	withoutNames := toolNames(without)
-	for _, name := range []string{"query_experts", "create_expert", "delegate_to_expert"} {
-		if withoutNames[name] {
-			t.Fatalf("tool %q should be disabled when ExpertTools=false", name)
-		}
+	if withoutNames["delegate_to_expert"] {
+		t.Fatalf("tool %q should be disabled when ExpertTools=false", "delegate_to_expert")
 	}
 
 	with := RegisterAll(Dependencies{
@@ -55,9 +49,7 @@ func TestRegisterAllExpertToolsFlag(t *testing.T) {
 		ExpertTools:    true,
 	})
 	withNames := toolNames(with)
-	for _, name := range []string{"query_experts", "create_expert", "delegate_to_expert"} {
-		if !withNames[name] {
-			t.Fatalf("tool %q should be enabled when ExpertTools=true", name)
-		}
+	if !withNames["delegate_to_expert"] {
+		t.Fatalf("tool %q should be enabled when ExpertTools=true", "delegate_to_expert")
 	}
 }

@@ -48,3 +48,10 @@ data/
 /superman.exe
 /sm
 /sm.exe
+
+# Script
+*.sh
+
+# Python
+.venv
+*.py

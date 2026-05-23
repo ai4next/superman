@@ -17,7 +17,6 @@ import (
 	"google.golang.org/adk/session"
 	"google.golang.org/genai"
 
-	"github.com/ai4next/superman/internal/agent/tools"
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/tui/components"
 )
@@ -36,7 +35,6 @@ type Model struct {
 	running        bool
 	showWelcome    bool
 	sessionID      string
-	userID         string
 	err            error
 	modelName      string
 	cursorRow      int
@@ -53,7 +51,6 @@ func New(a agent.Agent, cfg *config.Config, pluginCfg runner.PluginConfig, sessS
 		messages:       []components.Message{},
 		showWelcome:    true,
 		sessionID:      fmt.Sprintf("tui-%d", os.Getpid()),
-		userID:         "tui-user",
 		modelName:      fmt.Sprintf("%s/%s", cfg.Model.Provider, cfg.Model.Name),
 	}
 }
@@ -64,6 +61,9 @@ func (m *Model) Init() tea.Cmd {
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case []components.Message:
+		m.messages = append(m.messages, msg...)
+		m.running = false
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
@@ -116,6 +116,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cursorPos = 0
 		case "end":
 			m.cursorPos = len([]rune(m.input))
+		case "up":
+			m.scrollOffset++
+		case "down":
+			if m.scrollOffset > 0 {
+				m.scrollOffset--
+			}
 		case "pgup", "ctrl+u":
 			step := max(1, (m.height-2)/2)
 			m.scrollOffset += step
@@ -138,20 +144,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-	case tea.MouseMsg:
-		switch msg.Button {
-		case tea.MouseButtonWheelUp:
-			step := max(1, (m.height-2)/2)
-			m.scrollOffset += step
-		case tea.MouseButtonWheelDown:
-			if m.scrollOffset > 0 {
-				step := max(1, (m.height-2)/2)
-				m.scrollOffset -= step
-				if m.scrollOffset < 0 {
-					m.scrollOffset = 0
-				}
-			}
-		}
 	}
 	return m, nil
 }
@@ -234,9 +226,9 @@ func (m *Model) View() string {
 		chatContent = lipgloss.JoinVertical(lipgloss.Left, chatContent, toolbar)
 	}
 
-	// Clip content to fit terminal height, applying scrollOffset
-	// Terminal has m.height lines total; input line takes 1 line
-	availHeight := m.height - 1
+	// Clip content to fit terminal height, applying scrollOffset.
+	inputHeight := max(1, len(strings.Split(inputLine, "\n")))
+	availHeight := max(0, m.height-inputHeight)
 	chatLines := strings.Split(chatContent, "\n")
 	if len(chatLines) > availHeight {
 		maxOffset := len(chatLines) - availHeight
@@ -249,9 +241,8 @@ func (m *Model) View() string {
 		m.scrollOffset = 0
 	}
 
-	// cursor is always on the last line (input line)
 	fullOutput := chatContent + "\n" + inputLine
-	m.cursorRow = len(strings.Split(fullOutput, "\n"))
+	m.cursorRow = len(strings.Split(chatContent, "\n")) + inputHeight
 	return fullOutput
 }
 
@@ -261,18 +252,6 @@ func (m *Model) processInput() (tea.Model, tea.Cmd) {
 	prompt := strings.TrimSpace(m.input)
 	m.input = ""
 	m.cursorPos = 0
-
-	// Inject working memory (checkpoints) into the prompt
-	cps := tools.GetCheckpoints()
-	if len(cps) > 0 {
-		var wm strings.Builder
-		wm.WriteString("\n\n<working_memory>\n<key_info>\n")
-		for k, v := range cps {
-			wm.WriteString(fmt.Sprintf("  %s: %s\n", k, v))
-		}
-		wm.WriteString("</key_info>\n</working_memory>\n")
-		prompt += wm.String()
-	}
 
 	m.messages = append(m.messages, components.Message{
 		Role:    "user",
@@ -300,40 +279,45 @@ func (m *Model) processInput() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	ctx := context.Background()
-	msg := genai.NewContentFromText(prompt, "user")
+	return m, runAgent(m.runner, m.sessionID, prompt)
+}
 
-	var response strings.Builder
-	for evt, evtErr := range m.runner.Run(ctx, m.userID, m.sessionID, msg, agent.RunConfig{}) {
-		if evtErr != nil {
-			m.messages = append(m.messages, components.Message{
-				Role:    "agent",
-				Content: fmt.Sprintf("Error: %v", evtErr),
-			})
-			m.running = false
-			return m, nil
-		}
-		if evt != nil && evt.Content != nil {
-			for _, part := range evt.Content.Parts {
-				if part.Text != "" {
-					response.WriteString(part.Text)
-				}
-				if part.FunctionCall != nil {
-					m.messages = append(m.messages, components.Message{
-						Role: "tool",
-						Tool: part.FunctionCall.Name,
-					})
+func runAgent(run *runner.Runner, sessionID, prompt string) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		msg := genai.NewContentFromText(prompt, "user")
+
+		var messages []components.Message
+		var response strings.Builder
+		for evt, evtErr := range run.Run(ctx, "tui-user", sessionID, msg, agent.RunConfig{}) {
+			if evtErr != nil {
+				messages = append(messages, components.Message{
+					Role:    "agent",
+					Content: fmt.Sprintf("Error: %v", evtErr),
+				})
+				return messages
+			}
+			if evt != nil && evt.Content != nil {
+				for _, part := range evt.Content.Parts {
+					if part.Text != "" {
+						response.WriteString(part.Text)
+					}
+					if part.FunctionCall != nil {
+						messages = append(messages, components.Message{
+							Role: "tool",
+							Tool: part.FunctionCall.Name,
+						})
+					}
 				}
 			}
 		}
-	}
 
-	m.messages = append(m.messages, components.Message{
-		Role:    "agent",
-		Content: response.String(),
-	})
-	m.running = false
-	return m, nil
+		messages = append(messages, components.Message{
+			Role:    "agent",
+			Content: response.String(),
+		})
+		return messages
+	}
 }
 
 type cursorWriter struct {
@@ -357,7 +341,7 @@ func (w *cursorWriter) Fd() uintptr                { return w.out.Fd() }
 func Run(ctx context.Context, a agent.Agent, cfg *config.Config, pluginCfg runner.PluginConfig, sessSvc session.Service) error {
 	// Redirect log output to a file so plugin/subsystem logging doesn't
 	// corrupt the TUI display (stderr writes go through the alt screen).
-	logPath := filepath.Join(cfg.Dir, "tui.log")
+	logPath := filepath.Join(cfg.Workspace, "tui.log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err == nil {
 		log.SetOutput(logFile)
@@ -369,7 +353,7 @@ func Run(ctx context.Context, a agent.Agent, cfg *config.Config, pluginCfg runne
 
 	m := New(a, cfg, pluginCfg, sessSvc)
 	cw := &cursorWriter{out: os.Stdout, model: m}
-	p := tea.NewProgram(m, tea.WithOutput(cw), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(m, tea.WithOutput(cw), tea.WithAltScreen())
 	_, err = p.Run()
 	// Reset cursor style to default (block) after TUI exits
 	fmt.Fprint(os.Stdout, "\033[0 q")

@@ -15,25 +15,23 @@ func RenderInputSeparator(width int) string {
 
 func RenderInputLine(text string, cursorPos int, width int) (string, int) {
 	prompt := styles.InputPrompt.Render("> ")
-	remaining := width - lipgloss.Width(prompt) - 2
+	remaining := max(0, width-lipgloss.Width(prompt)-1)
 	runes := []rune(text)
 	if cursorPos > len(runes) {
 		cursorPos = len(runes)
 	}
-	if len(runes) > remaining && remaining > 0 {
-		start := cursorPos - remaining
-		if start < 0 {
-			start = 0
-		}
-		if start+remaining > len(runes) {
-			start = len(runes) - remaining
-		}
-		if start < 0 {
-			start = 0
-		}
-		runes = runes[start:]
-		cursorPos -= start
+
+	start := 0
+	for lipgloss.Width(string(runes[start:cursorPos])) > remaining && start < cursorPos {
+		start++
 	}
+	end := cursorPos
+	for end < len(runes) && lipgloss.Width(string(runes[start:end+1])) <= remaining {
+		end++
+	}
+	runes = runes[start:end]
+	cursorPos -= start
+
 	before := string(runes[:cursorPos])
 	after := string(runes[cursorPos:])
 	cursor := styles.CursorStyle.Render("█")

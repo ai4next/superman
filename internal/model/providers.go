@@ -74,12 +74,3 @@ func New(ctx context.Context, cfg config.ModelConfig) (model.LLM, error) {
 		return openai.New(cfg), nil
 	}
 }
-
-// MustNew calls New and panics on error.
-func MustNew(ctx context.Context, cfg config.ModelConfig) model.LLM {
-	m, err := New(ctx, cfg)
-	if err != nil {
-		panic(fmt.Sprintf("failed to create model: %v", err))
-	}
-	return m
-}

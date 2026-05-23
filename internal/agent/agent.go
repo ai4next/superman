@@ -6,24 +6,24 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/model"
 	"google.golang.org/adk/plugin"
-	"google.golang.org/adk/tool"
+	adktool "google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/skilltoolset"
 	"google.golang.org/adk/tool/skilltoolset/skill"
-	"google.golang.org/genai"
 
-	"github.com/ai4next/superman/internal/agent/tools"
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/expert"
 	"github.com/ai4next/superman/internal/hook"
 	"github.com/ai4next/superman/internal/memory"
+	"github.com/ai4next/superman/internal/tool"
 )
 
-//go:embed prompt/system.txt
+//go:embed system.txt
 var systemPrompt string
 
 // BuildConfig describes one concrete agent instance. Superman and experts use
@@ -33,26 +33,17 @@ type BuildConfig struct {
 	Description       string
 	Instruction       string
 	MemoryService     *memory.Service
-	MemorySearcher    tools.MemorySearcher
 	SOPContent        string
 	ExpertRegistry    *expert.Registry
-	DelegateRunner    tools.DelegateRunner
+	DelegateRunner    tool.DelegateRunner
 	EnableExpertTools bool
+	EvolutionSignal   hook.EvolutionSignal
+	EvolutionCh       chan<- hook.EvolutionSignal // completed-run signal receiver
 }
 
 // NewFromConfig creates an agent with the shared Superman runtime wiring:
 // configured tools, optional isolated memory, shared hooks, and shared skills.
 func NewFromConfig(llm model.LLM, cfg *config.Config, build BuildConfig) (adkagent.Agent, []*plugin.Plugin, error) {
-	if build.Name == "" {
-		build.Name = "superman"
-	}
-	if build.Description == "" {
-		build.Description = "Superman - general-purpose autonomous AI assistant"
-	}
-	if build.Instruction == "" {
-		build.Instruction = systemPrompt
-	}
-
 	expertRegistry := build.ExpertRegistry
 	delegateRunner := build.DelegateRunner
 	if !build.EnableExpertTools {
@@ -60,56 +51,29 @@ func NewFromConfig(llm model.LLM, cfg *config.Config, build BuildConfig) (adkage
 		delegateRunner = nil
 	}
 
-	deps := tools.Dependencies{
+	deps := tool.Dependencies{
 		Config:         cfg,
-		Workspace:      cfg.Tools.CodeRun.Workspace,
-		MemoryService:  build.MemoryService,
-		MemorySearcher: build.MemorySearcher,
 		ExpertManager:  expertRegistry,
 		DelegateRunner: delegateRunner,
 		ExpertTools:    build.EnableExpertTools,
 	}
 
-	toolList := tools.RegisterAll(deps)
-
-	instruction := build.Instruction
-	if build.SOPContent != "" {
-		instruction += "\n\n## SOP Rules\n" + build.SOPContent
-	}
-
-	var beforeModelCallbacks []llmagent.BeforeModelCallback
-	if build.MemoryService != nil {
-		beforeModelCallbacks = append(beforeModelCallbacks, func(ctx adkagent.CallbackContext, req *model.LLMRequest) (*model.LLMResponse, error) {
-			l1Content := build.MemoryService.GetL1Content()
-			if l1Content == "" {
-				return nil, nil
-			}
-			if req.Config == nil {
-				req.Config = &genai.GenerateContentConfig{}
-			}
-			if req.Config.SystemInstruction == nil {
-				req.Config.SystemInstruction = genai.NewContentFromText(l1Content, genai.RoleUser)
-				return nil, nil
-			}
-			if len(req.Config.SystemInstruction.Parts) > 0 && req.Config.SystemInstruction.Parts[len(req.Config.SystemInstruction.Parts)-1].Text != "" {
-				req.Config.SystemInstruction.Parts[len(req.Config.SystemInstruction.Parts)-1].Text += "\n\n" + l1Content
-				return nil, nil
-			}
-			req.Config.SystemInstruction.Parts = append(req.Config.SystemInstruction.Parts, genai.NewPartFromText(l1Content))
-			return nil, nil
-		})
-	}
+	toolList := tool.RegisterAll(deps)
 
 	var extraPlugins []*plugin.Plugin
-	hookMgr, err := hook.NewManager(filepath.Join(cfg.Dir, "hooks"))
+	signal := build.EvolutionSignal
+	if signal.AgentName == "" {
+		signal.AgentName = build.Name
+	}
+	hookMgr, err := hook.NewManagerWithSignal(filepath.Join(cfg.Workspace, "hooks"), signal, build.EvolutionCh)
 	if err != nil {
 		log.Printf("[agent] hook manager: %v", err)
 	} else {
 		extraPlugins = append(extraPlugins, hookMgr.Plugin())
 	}
 
-	var agentToolsets []tool.Toolset
-	skillsDir := filepath.Join(cfg.Dir, "skills")
+	var agentToolsets []adktool.Toolset
+	skillsDir := filepath.Join(cfg.Workspace, "skills")
 	skillFS := os.DirFS(skillsDir)
 	skillSource := skill.NewFileSystemSource(skillFS)
 	skillTS, err := skilltoolset.New(context.Background(), skilltoolset.Config{Source: skillSource})
@@ -121,13 +85,12 @@ func NewFromConfig(llm model.LLM, cfg *config.Config, build BuildConfig) (adkage
 	}
 
 	a, err := llmagent.New(llmagent.Config{
-		Name:                 build.Name,
-		Model:                llm,
-		Description:          build.Description,
-		Instruction:          instruction,
-		Tools:                toolList,
-		Toolsets:             agentToolsets,
-		BeforeModelCallbacks: beforeModelCallbacks,
+		Name:                build.Name,
+		Model:               llm,
+		Description:         build.Description,
+		InstructionProvider: instructionProvider(build),
+		Tools:               toolList,
+		Toolsets:            agentToolsets,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -135,29 +98,59 @@ func NewFromConfig(llm model.LLM, cfg *config.Config, build BuildConfig) (adkage
 
 	log.Printf("[agent] created %s agent with %d tools", build.Name, len(toolList))
 
-	checkpoints := tools.GetCheckpoints()
-	log.Printf("[agent] loaded %d checkpoints", len(checkpoints))
-
 	return a, extraPlugins, nil
 }
 
+func instructionProvider(build BuildConfig) func(adkagent.ReadonlyContext) (string, error) {
+	builder := strings.Builder{}
+	return func(adkagent.ReadonlyContext) (string, error) {
+		defer builder.Reset()
+		builder.WriteString(build.Instruction)
+		if build.SOPContent != "" {
+			builder.WriteString("\n\n## SOP Rules\n")
+			builder.WriteString(build.SOPContent)
+		}
+		if build.MemoryService != nil {
+			if l0Content := build.MemoryService.GetL0Content(); l0Content != "" {
+				builder.WriteString("\n\n")
+				builder.WriteString(l0Content)
+			}
+		}
+		return builder.String(), nil
+	}
+}
+
 // New creates a new Superman agent with all registered tools, optional SOP rules,
-// and L1 memory index injected into the system prompt.
-func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, memSearcher tools.MemorySearcher, sopContent string, expertRegistry *expert.Registry, delegateRunner tools.DelegateRunner) (adkagent.Agent, []*plugin.Plugin, error) {
+// L0 index injected into the system prompt, and completed-run signal receivers.
+func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, sopContent string, expertRegistry *expert.Registry, delegateRunner tool.DelegateRunner, evolutionCh chan<- hook.EvolutionSignal) (adkagent.Agent, []*plugin.Plugin, error) {
+	expertDir := ""
+	if cfg.Expert.Enabled {
+		expertDir = cfg.ExpertDir()
+	}
+	memoryDir := ""
+	if memSvc != nil {
+		memoryDir = memSvc.MemoryDir()
+	}
+
 	return NewFromConfig(llm, cfg, BuildConfig{
 		Name:              "superman",
 		Description:       "Superman - general-purpose autonomous AI assistant",
 		Instruction:       systemPrompt,
 		MemoryService:     memSvc,
-		MemorySearcher:    memSearcher,
 		SOPContent:        sopContent,
 		ExpertRegistry:    expertRegistry,
 		DelegateRunner:    delegateRunner,
 		EnableExpertTools: true,
+		EvolutionSignal: hook.EvolutionSignal{
+			Role:      "superman",
+			MemoryDir: memoryDir,
+			ExpertDir: expertDir,
+		},
+		EvolutionCh: evolutionCh,
 	})
 }
 
 // NewWithoutMemory creates an agent without a memory service (for simple CLI usage).
 func NewWithoutMemory(llm model.LLM, cfg *config.Config) (adkagent.Agent, []*plugin.Plugin, error) {
-	return New(llm, cfg, nil, nil, "", nil, nil)
+	return New(llm, cfg, nil, "", nil, nil, nil)
 }

@@ -31,10 +31,8 @@ func Load(configPath string) (*Config, error) {
 	v.SetEnvPrefix("SUPERMAN")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
-	v.SetDefault("memory.l4.archive_interval", Duration(6*time.Hour))
-	v.SetDefault("memory.l4.session_ttl", Duration(48*time.Hour))
-	v.SetDefault("memory.evolution.interval", Duration(30*time.Minute))
-	v.SetDefault("memory.l3.archive_interval", Duration(24*time.Hour))
+	v.SetDefault("session.archive_interval", Duration(6*time.Hour))
+	v.SetDefault("session.session_ttl", Duration(48*time.Hour))
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
@@ -74,17 +72,16 @@ func stringToDurationHook() mapstructure.DecodeHookFunc {
 }
 
 func expandPaths(cfg *Config) {
-	cfg.Dir = os.ExpandEnv(cfg.Dir)
-	cfg.Tools.CodeRun.Workspace = os.ExpandEnv(cfg.Tools.CodeRun.Workspace)
-	cfg.Session.HistoryPath = os.ExpandEnv(cfg.Session.HistoryPath)
+	cfg.Workspace = os.ExpandEnv(cfg.Workspace)
 	cfg.Reflect.Scheduler.TasksDir = os.ExpandEnv(cfg.Reflect.Scheduler.TasksDir)
-	cfg.Expert.Dir = os.ExpandEnv(cfg.Expert.Dir)
+	cfg.Tools.WebExecute.UserDataDir = os.ExpandEnv(cfg.Tools.WebExecute.UserDataDir)
+	cfg.Tools.WebExecute.BrowserPath = os.ExpandEnv(cfg.Tools.WebExecute.BrowserPath)
 }
 
 // applyDefaults fills in sensible defaults for any zero-value fields.
 func applyDefaults(cfg *Config) {
-	if cfg.Dir == "" {
-		cfg.Dir = os.ExpandEnv("$HOME/.sm")
+	if cfg.Workspace == "" {
+		cfg.Workspace = os.ExpandEnv("$HOME/.sm")
 	}
 	if cfg.Model.Provider == "" {
 		cfg.Model.Provider = "openai"
@@ -98,47 +95,44 @@ func applyDefaults(cfg *Config) {
 	if cfg.Tools.CodeRun.Timeout == 0 {
 		cfg.Tools.CodeRun.Timeout = Duration(30 * time.Second)
 	}
-	if cfg.Tools.CodeRun.Workspace == "" {
-		cfg.Tools.CodeRun.Workspace = "./workspace"
+	if cfg.Tools.Read.MaxSize == 0 {
+		cfg.Tools.Read.MaxSize = 10_485_760 // 10MB
 	}
-	if cfg.Tools.FileRead.MaxSize == 0 {
-		cfg.Tools.FileRead.MaxSize = 10_485_760 // 10MB
-	}
-	if cfg.Tools.FileWrite.MaxSize == 0 {
-		cfg.Tools.FileWrite.MaxSize = 10_485_760
+	if cfg.Tools.Write.MaxSize == 0 {
+		cfg.Tools.Write.MaxSize = 10_485_760
 	}
 	if cfg.Tools.WebScan.Timeout == 0 {
 		cfg.Tools.WebScan.Timeout = Duration(15 * time.Second)
 	}
-	if cfg.Memory.L1.MaxEntries == 0 {
-		cfg.Memory.L1.MaxEntries = 50
+	if cfg.Tools.WebExecute.Timeout == 0 {
+		cfg.Tools.WebExecute.Timeout = Duration(15 * time.Second)
 	}
-	if cfg.Memory.L3.ArchiveInterval == 0 {
-		cfg.Memory.L3.ArchiveInterval = Duration(24 * time.Hour)
+	if cfg.Tools.WebExecute.UserDataDir == "" {
+		cfg.Tools.WebExecute.UserDataDir = filepath.Join(cfg.Workspace, "chrome-profile")
 	}
-	if cfg.Memory.L4.ArchiveInterval == 0 {
-		cfg.Memory.L4.ArchiveInterval = Duration(6 * time.Hour)
+	if cfg.Memory.L1.MaxIndexItems == 0 {
+		cfg.Memory.L1.MaxIndexItems = 50
 	}
-	if cfg.Memory.L4.SessionTTL == 0 {
-		cfg.Memory.L4.SessionTTL = Duration(48 * time.Hour)
+	if cfg.Memory.L1.MaxSections == 0 {
+		cfg.Memory.L1.MaxSections = 100
 	}
-	if cfg.Memory.Evolution.Interval == 0 {
-		cfg.Memory.Evolution.Interval = Duration(30 * time.Minute)
+	if cfg.Memory.L2.MaxIndexItems == 0 {
+		cfg.Memory.L2.MaxIndexItems = 50
 	}
 	if cfg.Session.MaxTurns == 0 {
 		cfg.Session.MaxTurns = 75
 	}
-	if cfg.Session.HistoryPath == "" {
-		cfg.Session.HistoryPath = "./data/sessions"
-	}
 	if cfg.Session.AppName == "" {
 		cfg.Session.AppName = "superman"
 	}
-	if cfg.Expert.Dir == "" {
-		cfg.Expert.Dir = filepath.Join(cfg.Dir, "superman", "experts")
+	if cfg.Session.ArchiveInterval == 0 {
+		cfg.Session.ArchiveInterval = Duration(6 * time.Hour)
 	}
-	if cfg.Expert.TopK == 0 {
-		cfg.Expert.TopK = 2
+	if cfg.Session.SessionTTL == 0 {
+		cfg.Session.SessionTTL = Duration(48 * time.Hour)
+	}
+	if cfg.Expert.MaxCount == 0 {
+		cfg.Expert.MaxCount = 10
 	}
 	if cfg.Reflect.Autonomous.IdleTimeout == 0 {
 		cfg.Reflect.Autonomous.IdleTimeout = Duration(30 * time.Minute)

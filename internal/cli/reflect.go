@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ai4next/superman/internal/agent"
+	"github.com/ai4next/superman/internal/global"
 	"github.com/ai4next/superman/internal/model"
 	"github.com/ai4next/superman/internal/reflect"
 )
@@ -23,19 +24,23 @@ var reflectCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		cfg := global.Config()
 
-		llm := model.MustNew(ctx, cfg.Model)
+		llm, err := model.New(ctx, cfg.Model)
+		if err != nil {
+			return fmt.Errorf("create model: %w", err)
+		}
 		a, _, err := agent.NewWithoutMemory(llm, cfg)
 		if err != nil {
 			return fmt.Errorf("create agent: %w", err)
 		}
 
 		// Start idle watcher
-		watcher := reflect.NewIdleWatcher(a, cfg)
+		watcher := reflect.NewIdleWatcher(a)
 		go watcher.Start(ctx)
 
 		// Start task scheduler
-		scheduler := reflect.NewScheduler(a, cfg)
+		scheduler := reflect.NewScheduler(a)
 		go scheduler.Start(ctx)
 
 		log.Printf("[reflect] autonomous mode started with model %s/%s", cfg.Model.Provider, cfg.Model.Name)

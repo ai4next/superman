@@ -1,9 +1,8 @@
-package tools
+package tool
 
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -14,8 +13,8 @@ import (
 )
 
 type codeRunInput struct {
-	Language string `json:"language" jsonschema:"The programming language: python, bash, or sh"`
-	Code     string `json:"code" jsonschema:"The code to execute"`
+	Language string `json:"language" jsonschema:"python, bash, or sh"`
+	Code     string `json:"code" jsonschema:"Code to run"`
 }
 
 type codeRunOutput struct {
@@ -31,7 +30,7 @@ func newCodeRunTool(deps Dependencies) tool.Tool {
 	}
 	t, _ := functiontool.New(functiontool.Config{
 		Name:        "code_run",
-		Description: "Execute Python or shell code in a sandboxed workspace",
+		Description: "Run Python or shell code.",
 	}, handler)
 	return t
 }
@@ -55,12 +54,6 @@ func runCode(deps Dependencies, input codeRunInput) (codeRunOutput, error) {
 	default:
 		return codeRunOutput{}, fmt.Errorf("unsupported language: %s", input.Language)
 	}
-
-	cmd.Dir = deps.Workspace
-	cmd.Env = append(os.Environ(),
-		"HOME="+deps.Workspace,
-		"PATH="+os.Getenv("PATH"),
-	)
 
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout

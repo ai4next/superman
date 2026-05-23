@@ -14,6 +14,7 @@ import (
 	"google.golang.org/genai"
 
 	superman "github.com/ai4next/superman/internal/agent"
+	"github.com/ai4next/superman/internal/global"
 	"github.com/ai4next/superman/internal/model"
 	"github.com/ai4next/superman/internal/plugin"
 )
@@ -29,6 +30,7 @@ var runCmd = &cobra.Command{
 	Long:  "Execute a one-shot agent invocation with the given prompt.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
+		cfg := global.Config()
 
 		var prompt string
 		if runFile != "" {
@@ -49,7 +51,10 @@ var runCmd = &cobra.Command{
 			prompt = string(data)
 		}
 
-		llm := model.MustNew(ctx, cfg.Model)
+		llm, err := model.New(ctx, cfg.Model)
+		if err != nil {
+			return fmt.Errorf("create model: %w", err)
+		}
 		a, extraPlugins, err := superman.NewWithoutMemory(llm, cfg)
 		if err != nil {
 			return fmt.Errorf("create agent: %w", err)
