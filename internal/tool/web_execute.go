@@ -28,16 +28,20 @@ type webExecuteInput struct {
 }
 
 type webExecuteOutput struct {
-	Result   string    `json:"result"`
-	JSReturn any       `json:"js_return,omitempty"`
-	Status   string    `json:"status,omitempty"`
-	TabID    string    `json:"tab_id,omitempty"`
-	Diff     string    `json:"diff,omitempty"`
-	NewTabs  []tabInfo `json:"newTabs,omitempty"`
-	URL      string    `json:"url,omitempty"`
-	Title    string    `json:"title,omitempty"`
-	Tabs     []tabInfo `json:"tabs,omitempty"`
-	SavedTo  string    `json:"saved_to,omitempty"`
+	Result     string    `json:"result"`
+	JSReturn   any       `json:"js_return,omitempty"`
+	Status     string    `json:"status,omitempty"`
+	TabID      string    `json:"tab_id,omitempty"`
+	Diff       string    `json:"diff,omitempty"`
+	Transients []string  `json:"transients,omitempty"`
+	Suggestion string    `json:"suggestion,omitempty"`
+	Error      string    `json:"error,omitempty"`
+	Reloaded   bool      `json:"reloaded,omitempty"`
+	NewTabs    []tabInfo `json:"newTabs,omitempty"`
+	URL        string    `json:"url,omitempty"`
+	Title      string    `json:"title,omitempty"`
+	Tabs       []tabInfo `json:"tabs,omitempty"`
+	SavedTo    string    `json:"saved_to,omitempty"`
 }
 
 func newWebExecuteTool(deps Dependencies) tool.Tool {
@@ -102,6 +106,7 @@ func executeBrowserJS(deps Dependencies, input webExecuteInput) (webExecuteOutpu
 	defer cancel()
 
 	var title, currentURL, beforeHTML, afterHTML string
+	var transients []string
 	tasks := []chromedp.Action{}
 	if input.URL != "" {
 		if !isAllowedBrowserURL(input.URL) {
@@ -113,7 +118,7 @@ func executeBrowserJS(deps Dependencies, input webExecuteInput) (webExecuteOutpu
 		)
 	}
 	if !input.NoMonitor {
-		tasks = append(tasks, chromedp.OuterHTML("html", &beforeHTML, chromedp.ByQuery))
+		tasks = append(tasks, chromedp.Evaluate(wrapBrowserScript(genericAgentMonitorStartScript()), &beforeHTML))
 	}
 
 	var raw json.RawMessage
@@ -123,19 +128,30 @@ func executeBrowserJS(deps Dependencies, input webExecuteInput) (webExecuteOutpu
 		chromedp.Location(&currentURL),
 	)
 	if !input.NoMonitor {
-		tasks = append(tasks, chromedp.OuterHTML("html", &afterHTML, chromedp.ByQuery))
+		tasks = append(tasks,
+			chromedp.Evaluate(wrapBrowserScript(genericAgentGetTempTextsJS), &transients),
+			chromedp.Evaluate(wrapBrowserScript(genericAgentCurrentHTMLScript()), &afterHTML),
+		)
 	}
 
 	if err := chromedp.Run(runCtx, tasks...); err != nil {
-		return webExecuteOutput{}, fmt.Errorf("browser execution failed: %w", err)
+		return webExecuteOutput{
+			Status: "failed",
+			Error:  err.Error(),
+			TabID:  string(targetID),
+		}, nil
 	}
 
 	tabs, _ := browserTabs(root)
 	markActive(tabs, targetID)
 	newTabs := newBrowserTabs(beforeIDs, tabs)
 	diff := ""
+	suggestion := ""
 	if !input.NoMonitor {
 		diff = browserDiffSummary(beforeHTML, afterHTML, len(newTabs))
+		if diff == "DOM变化量: 0 (页面无变化)" && len(transients) == 0 && len(newTabs) == 0 {
+			suggestion = "页面无明显变化"
+		}
 	}
 	jsReturn := decodeJSONResult(raw)
 	savedTo := ""
@@ -147,26 +163,30 @@ func executeBrowserJS(deps Dependencies, input webExecuteInput) (webExecuteOutpu
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 			return webExecuteOutput{}, err
 		}
-		if err := os.WriteFile(path, []byte(formatJSONResult(raw)), 0644); err != nil {
+		content := fmt.Sprint(jsReturn)
+		if jsReturn == nil {
+			content = ""
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 			return webExecuteOutput{}, err
 		}
 		savedTo = path
-		if s, ok := jsReturn.(string); ok && len(s) > 170 {
-			jsReturn = s[:170] + fmt.Sprintf("\n\n[已保存完整内容到 %s]", path)
-		}
+		jsReturn = genericAgentSmartFormat(content, 170, " ... ") + fmt.Sprintf("\n\n[已保存完整内容到 %s]", path)
 	}
 
 	return webExecuteOutput{
-		Result:   formatJSONResult(raw),
-		JSReturn: jsReturn,
-		Status:   "success",
-		TabID:    string(targetID),
-		Diff:     diff,
-		NewTabs:  newTabs,
-		URL:      currentURL,
-		Title:    title,
-		Tabs:     tabs,
-		SavedTo:  savedTo,
+		Result:     formatJSONResult(raw),
+		JSReturn:   jsReturn,
+		Status:     "success",
+		TabID:      string(targetID),
+		Diff:       diff,
+		Transients: transients,
+		Suggestion: suggestion,
+		NewTabs:    newTabs,
+		URL:        currentURL,
+		Title:      title,
+		Tabs:       tabs,
+		SavedTo:    savedTo,
 	}, nil
 }
 

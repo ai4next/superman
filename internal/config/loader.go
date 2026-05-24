@@ -76,6 +76,8 @@ func expandPaths(cfg *Config) {
 	cfg.Reflect.Scheduler.TasksDir = os.ExpandEnv(cfg.Reflect.Scheduler.TasksDir)
 	cfg.Tools.WebExecute.UserDataDir = os.ExpandEnv(cfg.Tools.WebExecute.UserDataDir)
 	cfg.Tools.WebExecute.BrowserPath = os.ExpandEnv(cfg.Tools.WebExecute.BrowserPath)
+	cfg.Tools.BrowserUse.UserDataDir = os.ExpandEnv(cfg.Tools.BrowserUse.UserDataDir)
+	cfg.Tools.BrowserUse.BrowserPath = os.ExpandEnv(cfg.Tools.BrowserUse.BrowserPath)
 }
 
 // applyDefaults fills in sensible defaults for any zero-value fields.
@@ -109,6 +111,12 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Tools.WebExecute.UserDataDir == "" {
 		cfg.Tools.WebExecute.UserDataDir = filepath.Join(cfg.Workspace, "chrome-profile")
+	}
+	if cfg.Tools.BrowserUse.Timeout == 0 {
+		cfg.Tools.BrowserUse.Timeout = Duration(15 * time.Second)
+	}
+	if cfg.Tools.BrowserUse.UserDataDir == "" {
+		cfg.Tools.BrowserUse.UserDataDir = filepath.Join(cfg.Workspace, "browser-use-profile")
 	}
 	if cfg.Memory.L1.MaxIndexItems == 0 {
 		cfg.Memory.L1.MaxIndexItems = 50

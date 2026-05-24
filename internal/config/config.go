@@ -39,6 +39,7 @@ type ToolsConfig struct {
 	Patch      PatchConfig      `mapstructure:"patch"`
 	WebScan    WebScanConfig    `mapstructure:"web_scan"`
 	WebExecute WebExecuteConfig `mapstructure:"web_execute"`
+	BrowserUse BrowserUseConfig `mapstructure:"browser_use"`
 	AskUser    AskUserConfig    `mapstructure:"ask_user"`
 }
 
@@ -80,6 +81,18 @@ type WebExecuteConfig struct {
 	UserDataDir        string   `mapstructure:"user_data_dir"`
 	BrowserPath        string   `mapstructure:"browser_path"`
 	RemoteDebuggingURL string   `mapstructure:"remote_debugging_url"`
+}
+
+// BrowserUseConfig enables high-level browser actions.
+type BrowserUseConfig struct {
+	Enabled           bool     `mapstructure:"enabled"`
+	Timeout           Duration `mapstructure:"timeout"`
+	Headless          bool     `mapstructure:"headless"`
+	DisableSecurity   bool     `mapstructure:"disable_security"`
+	ExtraChromiumArgs []string `mapstructure:"extra_chromium_args"`
+	UserDataDir       string   `mapstructure:"user_data_dir"`
+	BrowserPath       string   `mapstructure:"browser_path"`
+	ProxyServer       string   `mapstructure:"proxy_server"`
 }
 
 // AskUserConfig allows asking the user for input.

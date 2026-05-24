@@ -23,7 +23,7 @@ tools:
   patch:
     enabled: true
   web_scan:
-    enabled: true
+    enabled: false
     timeout: 15s
   web_execute:
     enabled: false
@@ -32,6 +32,15 @@ tools:
     user_data_dir: ${HOME}/.sm/chrome-profile
     browser_path: ""
     remote_debugging_url: ""
+  browser_use:
+    enabled: false
+    timeout: 15s
+    headless: false
+    disable_security: false
+    extra_chromium_args: []
+    user_data_dir: ${HOME}/.sm/browser-use-profile
+    browser_path: "/Applications/Chrome.app/Contents/MacOS/Google\ Chrome"
+    proxy_server: ""
   ask_user:
     enabled: true
 

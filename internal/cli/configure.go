@@ -53,13 +53,14 @@ var configureCmd = &cobra.Command{
 			fmt.Printf("  Provider:  %s\n", cfg.Model.Provider)
 			fmt.Printf("  Model:     %s\n", cfg.Model.Name)
 			fmt.Printf("  Server:    %s\n", cfg.Server.Addr)
-			fmt.Printf("  Tools:     code_run=%v read=%v write=%v patch=%v web_scan=%v web_execute=%v ask_user=%v\n",
+			fmt.Printf("  Tools:     code_run=%v read=%v write=%v patch=%v web_scan=%v web_execute=%v browser_use=%v ask_user=%v\n",
 				cfg.Tools.CodeRun.Enabled,
 				cfg.Tools.Read.Enabled,
 				cfg.Tools.Write.Enabled,
 				cfg.Tools.Patch.Enabled,
 				cfg.Tools.WebScan.Enabled,
 				cfg.Tools.WebExecute.Enabled,
+				cfg.Tools.BrowserUse.Enabled,
 				cfg.Tools.AskUser.Enabled,
 			)
 			fmt.Printf("  Max turns: %d\n", cfg.Session.MaxTurns)

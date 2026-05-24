@@ -63,3 +63,26 @@ func TestBrowserDiffSummary(t *testing.T) {
 		t.Fatalf("browserDiffSummary() = %q", got)
 	}
 }
+
+func TestGenericAgentSmartFormat(t *testing.T) {
+	got := genericAgentSmartFormat("0123456789abcdefghijklmnopqrstuvwxyz", 10, " ... ")
+	want := "01234 ... vwxyz"
+	if got != want {
+		t.Fatalf("genericAgentSmartFormat() = %q, want %q", got, want)
+	}
+}
+
+func TestNormalizeTextOnlyContent(t *testing.T) {
+	got := normalizeTextOnlyContent("  first\r\nsecond\rthird\n  ")
+	want := "first\nsecond\nthird"
+	if got != want {
+		t.Fatalf("normalizeTextOnlyContent() = %q, want %q", got, want)
+	}
+}
+
+func TestGenericAgentScanScriptUsesTextOnlyFlag(t *testing.T) {
+	got := genericAgentScanScript(true)
+	if !strings.Contains(got, "return optHTML(true);") {
+		t.Fatalf("genericAgentScanScript(true) should pass true: %s", got)
+	}
+}

@@ -275,19 +275,22 @@ func scanBrowser(deps Dependencies, input webScanInput) (webScanOutput, error) {
 		}
 		actions = append(actions, chromedp.Navigate(input.URL), chromedp.WaitReady("body", chromedp.ByQuery))
 	}
-	if input.TextOnly {
-		actions = append(actions, chromedp.Text("body", &content, chromedp.ByQuery))
-	} else {
-		actions = append(actions, chromedp.OuterHTML("html", &content, chromedp.ByQuery))
-	}
+	actions = append(actions, chromedp.Evaluate(wrapBrowserScript(genericAgentScanScript(input.TextOnly)), &content))
 	actions = append(actions, chromedp.Title(&title), chromedp.Location(&currentURL))
 	if err := chromedp.Run(runCtx, actions...); err != nil {
-		return webScanOutput{}, fmt.Errorf("browser scan failed: %w", err)
+		return webScanOutput{
+			Status: "error",
+			Msg:    err.Error(),
+		}, nil
 	}
 
 	maxOutput := 35000
 	if input.MaxLen > 0 {
 		maxOutput = input.MaxLen
+	}
+	if input.TextOnly {
+		content = normalizeTextOnlyContent(content)
+		content = genericAgentSmartFormat(content, maxOutput/3, "\n\n[omitted long content]\n\n")
 	}
 	truncated := false
 	if len(content) > maxOutput {

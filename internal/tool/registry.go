@@ -41,6 +41,9 @@ func RegisterAll(deps Dependencies) []tool.Tool {
 	if deps.Config.Tools.WebExecute.Enabled {
 		tools = append(tools, newWebExecuteTool(deps))
 	}
+	if deps.Config.Tools.BrowserUse.Enabled {
+		tools = append(tools, newBrowserUseTool(deps))
+	}
 	if deps.Config.Tools.AskUser.Enabled {
 		tools = append(tools, newAskUserTool(deps))
 	}
