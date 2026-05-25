@@ -8,20 +8,24 @@ import (
 
 	"github.com/spf13/cobra"
 
-	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
-	"google.golang.org/adk/session"
+	adksession "google.golang.org/adk/session"
 	"google.golang.org/genai"
 
 	superman "github.com/ai4next/superman/internal/agent"
+	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/global"
 	"github.com/ai4next/superman/internal/model"
 	"github.com/ai4next/superman/internal/plugin"
+	supermanruntime "github.com/ai4next/superman/internal/runtime"
+	supermansession "github.com/ai4next/superman/internal/session"
 )
 
 var (
-	runPrompt string
-	runFile   string
+	runPrompt  string
+	runFile    string
+	runUser    string
+	runSession string
 )
 
 var runCmd = &cobra.Command{
@@ -32,30 +36,20 @@ var runCmd = &cobra.Command{
 		ctx := context.Background()
 		cfg := global.Config()
 
-		var prompt string
-		if runFile != "" {
-			data, err := os.ReadFile(runFile)
-			if err != nil {
-				return fmt.Errorf("read prompt file: %w", err)
-			}
-			prompt = string(data)
-		} else if runPrompt != "" {
-			prompt = runPrompt
-		} else if len(args) > 0 {
-			prompt = args[0]
-		} else {
-			data, err := io.ReadAll(os.Stdin)
-			if err != nil || len(data) == 0 {
-				return fmt.Errorf("no prompt provided: use --prompt, --file, args, or stdin")
-			}
-			prompt = string(data)
+		prompt, err := runPromptInput(args, os.Stdin)
+		if err != nil {
+			return err
 		}
 
 		llm, err := model.New(ctx, cfg.Model)
 		if err != nil {
 			return fmt.Errorf("create model: %w", err)
 		}
-		a, extraPlugins, err := superman.NewWithoutMemory(llm, cfg)
+		sessionService, err := supermansession.NewService()
+		if err != nil {
+			return fmt.Errorf("create session service: %w", err)
+		}
+		a, extraPlugins, err := superman.New(llm, cfg, nil, sessionService, "", nil, nil, nil)
 		if err != nil {
 			return fmt.Errorf("create agent: %w", err)
 		}
@@ -74,7 +68,6 @@ var runCmd = &cobra.Command{
 			}
 		}
 
-		sessionService := session.InMemoryService()
 		r, err := runner.New(runner.Config{
 			Agent:             a,
 			AppName:           cfg.Session.AppName,
@@ -86,17 +79,19 @@ var runCmd = &cobra.Command{
 			return fmt.Errorf("create runner: %w", err)
 		}
 
-		msg := genai.NewContentFromText(prompt, "user")
-		for evt, err := range r.Run(ctx, "cli-user", "cli-session", msg, adkagent.RunConfig{}) {
+		req := buildRunRequest(cfg, sessionService, prompt)
+		if err := ensureRunSession(ctx, sessionService, &req); err != nil {
+			return err
+		}
+		supermansession.RecordPromptReferences(sessionService, req.AppName, req.UserID, req.SessionID, cfg.Workspace, prompt)
+
+		auditLogger := supermanruntime.NewAuditLogger(global.RuntimeEventsPath())
+		for event, err := range supermanruntime.StreamRun(ctx, r, req, nil) {
 			if err != nil {
 				return fmt.Errorf("run error: %w", err)
 			}
-			if evt.Content != nil {
-				for _, part := range evt.Content.Parts {
-					if part.Text != "" {
-						fmt.Print(part.Text)
-					}
-				}
+			if err := writeRunEvent(os.Stdout, auditLogger, event); err != nil {
+				return err
 			}
 		}
 		fmt.Println()
@@ -104,7 +99,88 @@ var runCmd = &cobra.Command{
 	},
 }
 
+func writeRunEvent(w io.Writer, auditLogger *supermanruntime.AuditLogger, event supermanruntime.Event) error {
+	if err := auditLogger.Write(event); err != nil {
+		return err
+	}
+	if event.Type == supermanruntime.EventTextDelta {
+		_, err := fmt.Fprint(w, event.Text)
+		return err
+	}
+	return nil
+}
+
+func ensureRunSession(ctx context.Context, sessionService *supermansession.Service, req *supermanruntime.RunRequest) error {
+	if sessionService == nil {
+		return nil
+	}
+	if _, err := sessionService.Get(ctx, &adksession.GetRequest{
+		AppName:   req.AppName,
+		UserID:    req.UserID,
+		SessionID: req.SessionID,
+	}); err == nil {
+		return nil
+	}
+	created, err := sessionService.Create(ctx, &adksession.CreateRequest{
+		AppName:   req.AppName,
+		UserID:    req.UserID,
+		SessionID: req.SessionID,
+	})
+	if err != nil {
+		return fmt.Errorf("create session %s: %w", req.SessionID, err)
+	}
+	req.SessionID = created.Session.ID()
+	return nil
+}
+
 func init() {
 	runCmd.Flags().StringVarP(&runPrompt, "prompt", "p", "", "prompt text")
 	runCmd.Flags().StringVarP(&runFile, "file", "f", "", "read prompt from file")
+	runCmd.Flags().StringVar(&runUser, "user", "cli-user", "session user id")
+	runCmd.Flags().StringVar(&runSession, "session", "", "session id")
+}
+
+func runPromptInput(args []string, stdin io.Reader) (string, error) {
+	switch {
+	case runFile != "":
+		data, err := os.ReadFile(runFile)
+		if err != nil {
+			return "", fmt.Errorf("read prompt file: %w", err)
+		}
+		return string(data), nil
+	case runPrompt != "":
+		return runPrompt, nil
+	case len(args) > 0:
+		return args[0], nil
+	default:
+		data, err := io.ReadAll(stdin)
+		if err != nil {
+			return "", fmt.Errorf("read stdin: %w", err)
+		}
+		if len(data) == 0 {
+			return "", fmt.Errorf("no prompt provided: use --prompt, --file, args, or stdin")
+		}
+		return string(data), nil
+	}
+}
+
+func buildRunRequest(cfg *config.Config, sessionService *supermansession.Service, prompt string) supermanruntime.RunRequest {
+	return supermanruntime.RunRequest{
+		AppName:   cfg.Session.AppName,
+		UserID:    firstNonEmpty(runUser, "cli-user"),
+		SessionID: runSession,
+		Message:   genai.NewContentFromText(prompt, genai.RoleUser),
+		LoopDetection: supermanruntime.LoopDetectionConfig{
+			Enabled:    cfg.Session.LoopDetection.Enabled,
+			WindowSize: cfg.Session.LoopDetection.WindowSize,
+			MaxRepeats: cfg.Session.LoopDetection.MaxRepeats,
+		},
+		Compact: supermansession.RuntimeCompactor{
+			Service: sessionService,
+			Options: supermansession.CompactOptions{
+				MaxMessages: cfg.Session.MaxTurns,
+				KeepLast:    20,
+			},
+		},
+	}
 }

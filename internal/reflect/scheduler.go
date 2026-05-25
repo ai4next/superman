@@ -10,10 +10,9 @@ import (
 
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
-	"google.golang.org/adk/session"
-	"google.golang.org/genai"
 
 	"github.com/ai4next/superman/internal/global"
+	supermansession "github.com/ai4next/superman/internal/session"
 )
 
 // ScheduleTask defines a scheduled reflection task loaded from a JSON file.
@@ -27,15 +26,24 @@ type ScheduleTask struct {
 // Scheduler manages periodic reflection tasks. It reads task definitions
 // from JSON files in a configured directory and executes enabled tasks.
 type Scheduler struct {
-	agent  agent.Agent
-	stopCh chan struct{}
+	agent     agent.Agent
+	sessions  *supermansession.Service
+	pluginCfg runner.PluginConfig
+	stopCh    chan struct{}
 }
 
 // NewScheduler creates a new Scheduler with the given agent.
-func NewScheduler(a agent.Agent) *Scheduler {
+func NewScheduler(a agent.Agent, sessions *supermansession.Service) *Scheduler {
+	return NewSchedulerWithPlugins(a, sessions, runner.PluginConfig{})
+}
+
+// NewSchedulerWithPlugins creates a scheduler with ADK plugins preserved.
+func NewSchedulerWithPlugins(a agent.Agent, sessions *supermansession.Service, pluginCfg runner.PluginConfig) *Scheduler {
 	return &Scheduler{
-		agent:  a,
-		stopCh: make(chan struct{}),
+		agent:     a,
+		sessions:  sessions,
+		pluginCfg: pluginCfg,
+		stopCh:    make(chan struct{}),
 	}
 }
 
@@ -93,32 +101,11 @@ func (s *Scheduler) loadTasks(dir string) []ScheduleTask {
 }
 
 func (s *Scheduler) executeTask(ctx context.Context, task ScheduleTask) {
-	sessionService := session.InMemoryService()
-	r, err := runner.New(runner.Config{
-		Agent:             s.agent,
-		AppName:           global.Config().Session.AppName,
-		SessionService:    sessionService,
-		AutoCreateSession: true,
-	})
+	cfg := global.Config()
+	_, err := newExecutor(s.agent, s.sessions, s.pluginCfg).run(ctx, cfg, "scheduler-user", "", task.Prompt, "scheduler")
 	if err != nil {
-		log.Printf("[scheduler] runner creation failed: %v", err)
+		log.Printf("[scheduler] task %s error: %v", task.Name, err)
 		return
-	}
-
-	msg := genai.NewContentFromText(task.Prompt, "user")
-
-	for evt, evtErr := range r.Run(ctx, "scheduler-user", "scheduler-"+task.Name, msg, agent.RunConfig{}) {
-		if evtErr != nil {
-			log.Printf("[scheduler] task %s error: %v", task.Name, evtErr)
-			return
-		}
-		if evt != nil && evt.Content != nil {
-			for _, part := range evt.Content.Parts {
-				if part.Text != "" {
-					log.Printf("[scheduler] %s output: %s", task.Name, truncate(part.Text, 200))
-				}
-			}
-		}
 	}
 	log.Printf("[scheduler] task %s completed", task.Name)
 }

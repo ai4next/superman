@@ -3,30 +3,30 @@ package cli
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
-	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/model"
 	"google.golang.org/adk/runner"
-	"google.golang.org/adk/session"
 	"google.golang.org/genai"
 
 	"github.com/ai4next/superman/internal/agent"
+	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/expert"
 	"github.com/ai4next/superman/internal/global"
-	"github.com/ai4next/superman/internal/hook"
 	"github.com/ai4next/superman/internal/memory"
+	supermanruntime "github.com/ai4next/superman/internal/runtime"
+	supermansession "github.com/ai4next/superman/internal/session"
 )
 
 // delegateService runs experts through the same agent builder as Superman.
 type delegateService struct {
-	llm         model.LLM
-	registry    *expert.Registry
-	evolutionCh chan<- hook.EvolutionSignal
+	llm      model.LLM
+	registry *expert.Registry
 }
 
-func newDelegateService(llm model.LLM, registry *expert.Registry, evolutionCh chan<- hook.EvolutionSignal) *delegateService {
-	return &delegateService{llm: llm, registry: registry, evolutionCh: evolutionCh}
+func newDelegateService(llm model.LLM, registry *expert.Registry) *delegateService {
+	return &delegateService{llm: llm, registry: registry}
 }
 
 func (ds *delegateService) RunDelegate(ctx context.Context, specName string, task string) (string, error) {
@@ -36,28 +36,27 @@ func (ds *delegateService) RunDelegate(ctx context.Context, specName string, tas
 	}
 
 	cfg := global.Config()
-	expertMemoryDir := cfg.ExpertMemoryDir(spec.Name)
-	memSvc := memory.New(expertMemoryDir)
+	memSvc := memory.NewExpert(spec.Name)
 	if err := memSvc.LoadFromDisk(); err != nil {
 		return "", fmt.Errorf("load expert memory: %w", err)
+	}
+	sessionService, err := supermansession.NewService()
+	if err != nil {
+		return "", fmt.Errorf("create expert session service: %w", err)
 	}
 	a, extraPlugins, err := agent.NewFromConfig(ds.llm, cfg, agent.BuildConfig{
 		Name:              spec.Name,
 		Description:       spec.Name,
 		Instruction:       spec.SystemPrompt + "\n\nReturn only a concise plain-text summary of the delegated task result.",
 		MemoryService:     memSvc,
+		SessionService:    sessionService,
+		ContextMessages:   8,
 		EnableExpertTools: false,
-		EvolutionSignal: hook.EvolutionSignal{
-			Role:      "expert",
-			MemoryDir: expertMemoryDir,
-		},
-		EvolutionCh: ds.evolutionCh,
 	})
 	if err != nil {
 		return "", fmt.Errorf("create expert agent: %w", err)
 	}
 
-	sessionService := session.InMemoryService()
 	r, err := runner.New(runner.Config{
 		Agent:             a,
 		AppName:           cfg.Session.AppName + "-expert",
@@ -69,16 +68,23 @@ func (ds *delegateService) RunDelegate(ctx context.Context, specName string, tas
 		return "", fmt.Errorf("create expert runner: %w", err)
 	}
 
-	msg := genai.NewContentFromText(task, "user")
+	req := buildDelegateRunRequest(cfg, sessionService, spec.Name, task)
+	if err := ensureRunSession(ctx, sessionService, &req); err != nil {
+		return "", err
+	}
+	supermansession.RecordPromptReferences(sessionService, req.AppName, req.UserID, req.SessionID, cfg.Workspace, task)
+
+	auditLogger := supermanruntime.NewAuditLogger(global.RuntimeEventsPath())
 	var response strings.Builder
-	for evt, evtErr := range r.Run(ctx, "expert-user", "expert-"+spec.Name, msg, adkagent.RunConfig{}) {
+	for event, evtErr := range supermanruntime.StreamRun(ctx, r, req, nil) {
+		if err := auditLogger.Write(event); err != nil {
+			log.Printf("[expert] audit write failed: %v", err)
+		}
 		if evtErr != nil {
 			return "", evtErr
 		}
-		if evt.Content != nil {
-			for _, part := range evt.Content.Parts {
-				response.WriteString(part.Text)
-			}
+		if event.Type == supermanruntime.EventTextDelta {
+			response.WriteString(event.Text)
 		}
 	}
 	result := strings.TrimSpace(response.String())
@@ -86,4 +92,24 @@ func (ds *delegateService) RunDelegate(ctx context.Context, specName string, tas
 		return "", fmt.Errorf("delegate returned an empty response")
 	}
 	return result, nil
+}
+
+func buildDelegateRunRequest(cfg *config.Config, sessionService *supermansession.Service, expertName string, task string) supermanruntime.RunRequest {
+	return supermanruntime.RunRequest{
+		AppName: cfg.Session.AppName + "-expert",
+		UserID:  "expert-user",
+		Message: genai.NewContentFromText(task, genai.RoleUser),
+		LoopDetection: supermanruntime.LoopDetectionConfig{
+			Enabled:    cfg.Session.LoopDetection.Enabled,
+			WindowSize: cfg.Session.LoopDetection.WindowSize,
+			MaxRepeats: cfg.Session.LoopDetection.MaxRepeats,
+		},
+		Compact: supermansession.RuntimeCompactor{
+			Service: sessionService,
+			Options: supermansession.CompactOptions{
+				MaxMessages: cfg.Session.MaxTurns,
+				KeepLast:    20,
+			},
+		},
+	}
 }

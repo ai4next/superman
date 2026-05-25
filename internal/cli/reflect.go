@@ -10,11 +10,13 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/adk/runner"
 
 	"github.com/ai4next/superman/internal/agent"
 	"github.com/ai4next/superman/internal/global"
 	"github.com/ai4next/superman/internal/model"
 	"github.com/ai4next/superman/internal/reflect"
+	supermansession "github.com/ai4next/superman/internal/session"
 )
 
 var reflectCmd = &cobra.Command{
@@ -30,17 +32,22 @@ var reflectCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("create model: %w", err)
 		}
-		a, _, err := agent.NewWithoutMemory(llm, cfg)
+		sessionService, err := supermansession.NewService()
+		if err != nil {
+			return fmt.Errorf("create session service: %w", err)
+		}
+		a, extraPlugins, err := agent.New(llm, cfg, nil, sessionService, "", nil, nil, nil)
 		if err != nil {
 			return fmt.Errorf("create agent: %w", err)
 		}
+		pluginCfg := runner.PluginConfig{Plugins: extraPlugins}
 
 		// Start idle watcher
-		watcher := reflect.NewIdleWatcher(a)
+		watcher := reflect.NewIdleWatcherWithPlugins(a, sessionService, pluginCfg)
 		go watcher.Start(ctx)
 
 		// Start task scheduler
-		scheduler := reflect.NewScheduler(a)
+		scheduler := reflect.NewSchedulerWithPlugins(a, sessionService, pluginCfg)
 		go scheduler.Start(ctx)
 
 		log.Printf("[reflect] autonomous mode started with model %s/%s", cfg.Model.Provider, cfg.Model.Name)

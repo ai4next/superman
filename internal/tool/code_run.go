@@ -31,6 +31,9 @@ func newCodeRunTool(deps Dependencies) tool.Tool {
 	t, _ := functiontool.New(functiontool.Config{
 		Name:        "code_run",
 		Description: "Run Python or shell code.",
+		RequireConfirmationProvider: func(input codeRunInput) bool {
+			return deps.requiresConfirmation("code_run", input.Language, input)
+		},
 	}, handler)
 	return t
 }

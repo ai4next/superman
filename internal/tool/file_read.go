@@ -27,7 +27,7 @@ type fileReadOutput struct {
 
 func newReadTool(deps Dependencies) tool.Tool {
 	handler := func(tctx tool.Context, input fileReadInput) (fileReadOutput, error) {
-		return readFile(deps, input)
+		return readFile(tctx, deps, input)
 	}
 	t, _ := functiontool.New(functiontool.Config{
 		Name:        "read",
@@ -36,7 +36,7 @@ func newReadTool(deps Dependencies) tool.Tool {
 	return t
 }
 
-func readFile(deps Dependencies, input fileReadInput) (fileReadOutput, error) {
+func readFile(tctx tool.Context, deps Dependencies, input fileReadInput) (fileReadOutput, error) {
 	abs, err := filepath.Abs(input.Path)
 	if err != nil {
 		return fileReadOutput{}, fmt.Errorf("invalid path: %w", err)
@@ -88,11 +88,13 @@ func readFile(deps Dependencies, input fileReadInput) (fileReadOutput, error) {
 		fmt.Fprintf(&result, "%d\t%s\n", i+1, lines[i])
 	}
 
-	return fileReadOutput{
+	out := fileReadOutput{
 		Content:    result.String(),
 		TotalLines: totalLines,
 		StartLine:  startLine,
 		EndLine:    endLine,
 		FilePath:   abs,
-	}, nil
+	}
+	recordFileRead(tctx, deps, abs)
+	return out, nil
 }

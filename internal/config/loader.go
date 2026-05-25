@@ -41,6 +41,9 @@ func Load(configPath string) (*Config, error) {
 	}
 
 	var cfg Config
+	skillsEnabledSet := v.IsSet("skills.enabled")
+	loopDetectionEnabledSet := v.IsSet("session.loop_detection.enabled")
+
 	if err := v.Unmarshal(&cfg, viper.DecodeHook(stringToDurationHook())); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
@@ -49,7 +52,8 @@ func Load(configPath string) (*Config, error) {
 	cfg.Model.APIKey = os.ExpandEnv(cfg.Model.APIKey)
 	expandPaths(&cfg)
 
-	applyDefaults(&cfg)
+	applyDefaults(&cfg, skillsEnabledSet, loopDetectionEnabledSet)
+	normalizePaths(&cfg)
 	return &cfg, nil
 }
 
@@ -74,14 +78,28 @@ func stringToDurationHook() mapstructure.DecodeHookFunc {
 func expandPaths(cfg *Config) {
 	cfg.Workspace = os.ExpandEnv(cfg.Workspace)
 	cfg.Reflect.Scheduler.TasksDir = os.ExpandEnv(cfg.Reflect.Scheduler.TasksDir)
-	cfg.Tools.WebExecute.UserDataDir = os.ExpandEnv(cfg.Tools.WebExecute.UserDataDir)
-	cfg.Tools.WebExecute.BrowserPath = os.ExpandEnv(cfg.Tools.WebExecute.BrowserPath)
-	cfg.Tools.BrowserUse.UserDataDir = os.ExpandEnv(cfg.Tools.BrowserUse.UserDataDir)
-	cfg.Tools.BrowserUse.BrowserPath = os.ExpandEnv(cfg.Tools.BrowserUse.BrowserPath)
+	for i, path := range cfg.Skills.Paths {
+		cfg.Skills.Paths[i] = os.ExpandEnv(path)
+	}
+	for i := range cfg.MCP.Servers {
+		cfg.MCP.Servers[i].Command = os.ExpandEnv(cfg.MCP.Servers[i].Command)
+		for j, arg := range cfg.MCP.Servers[i].Args {
+			cfg.MCP.Servers[i].Args[j] = os.ExpandEnv(arg)
+		}
+	}
+}
+
+func normalizePaths(cfg *Config) {
+	for i, path := range cfg.Skills.Paths {
+		if path == "" || filepath.IsAbs(path) {
+			continue
+		}
+		cfg.Skills.Paths[i] = filepath.Join(cfg.Workspace, path)
+	}
 }
 
 // applyDefaults fills in sensible defaults for any zero-value fields.
-func applyDefaults(cfg *Config) {
+func applyDefaults(cfg *Config, skillsEnabledSet bool, loopDetectionEnabledSet bool) {
 	if cfg.Workspace == "" {
 		cfg.Workspace = os.ExpandEnv("$HOME/.sm")
 	}
@@ -94,6 +112,9 @@ func applyDefaults(cfg *Config) {
 	if cfg.Server.Addr == "" {
 		cfg.Server.Addr = "127.0.0.1:8080"
 	}
+	if !skillsEnabledSet {
+		cfg.Skills.Enabled = true
+	}
 	if cfg.Tools.CodeRun.Timeout == 0 {
 		cfg.Tools.CodeRun.Timeout = Duration(30 * time.Second)
 	}
@@ -102,21 +123,6 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Tools.Write.MaxSize == 0 {
 		cfg.Tools.Write.MaxSize = 10_485_760
-	}
-	if cfg.Tools.WebScan.Timeout == 0 {
-		cfg.Tools.WebScan.Timeout = Duration(15 * time.Second)
-	}
-	if cfg.Tools.WebExecute.Timeout == 0 {
-		cfg.Tools.WebExecute.Timeout = Duration(15 * time.Second)
-	}
-	if cfg.Tools.WebExecute.UserDataDir == "" {
-		cfg.Tools.WebExecute.UserDataDir = filepath.Join(cfg.Workspace, "chrome-profile")
-	}
-	if cfg.Tools.BrowserUse.Timeout == 0 {
-		cfg.Tools.BrowserUse.Timeout = Duration(15 * time.Second)
-	}
-	if cfg.Tools.BrowserUse.UserDataDir == "" {
-		cfg.Tools.BrowserUse.UserDataDir = filepath.Join(cfg.Workspace, "browser-use-profile")
 	}
 	if cfg.Memory.L1.MaxIndexItems == 0 {
 		cfg.Memory.L1.MaxIndexItems = 50
@@ -129,6 +135,15 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Session.MaxTurns == 0 {
 		cfg.Session.MaxTurns = 75
+	}
+	if cfg.Session.LoopDetection.WindowSize == 0 {
+		cfg.Session.LoopDetection.WindowSize = 10
+	}
+	if cfg.Session.LoopDetection.MaxRepeats == 0 {
+		cfg.Session.LoopDetection.MaxRepeats = 5
+	}
+	if !loopDetectionEnabledSet {
+		cfg.Session.LoopDetection.Enabled = true
 	}
 	if cfg.Session.AppName == "" {
 		cfg.Session.AppName = "superman"

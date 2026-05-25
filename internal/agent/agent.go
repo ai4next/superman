@@ -5,14 +5,17 @@ import (
 	_ "embed"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/model"
 	"google.golang.org/adk/plugin"
 	adktool "google.golang.org/adk/tool"
+	"google.golang.org/adk/tool/mcptoolset"
 	"google.golang.org/adk/tool/skilltoolset"
 	"google.golang.org/adk/tool/skilltoolset/skill"
 
@@ -20,6 +23,8 @@ import (
 	"github.com/ai4next/superman/internal/expert"
 	"github.com/ai4next/superman/internal/hook"
 	"github.com/ai4next/superman/internal/memory"
+	"github.com/ai4next/superman/internal/permission"
+	supermansession "github.com/ai4next/superman/internal/session"
 	"github.com/ai4next/superman/internal/tool"
 )
 
@@ -33,12 +38,62 @@ type BuildConfig struct {
 	Description       string
 	Instruction       string
 	MemoryService     *memory.Service
+	SessionService    *supermansession.Service
+	PermissionService *permission.Service
+	ContextMessages   int
 	SOPContent        string
 	ExpertRegistry    *expert.Registry
 	DelegateRunner    tool.DelegateRunner
 	EnableExpertTools bool
 	EvolutionSignal   hook.EvolutionSignal
 	EvolutionCh       chan<- hook.EvolutionSignal // completed-run signal receiver
+}
+
+// ToolsetDescriptor describes one configured ADK toolset before it is attached
+// to an agent. It is intentionally config-derived so CLI/TUI/debug surfaces can
+// explain Superman's external abilities without opening network/process-backed
+// toolsets.
+type ToolsetDescriptor struct {
+	Name                 string   `json:"name"`
+	Kind                 string   `json:"kind"`
+	Source               string   `json:"source"`
+	Tools                []string `json:"tools,omitempty"`
+	RequiresConfirmation bool     `json:"requires_confirmation"`
+}
+
+// DescribeConfiguredToolsets returns the ADK toolsets Superman will attach for
+// the given config, excluding disabled or incomplete entries.
+func DescribeConfiguredToolsets(cfg *config.Config) []ToolsetDescriptor {
+	if cfg == nil {
+		return nil
+	}
+	var out []ToolsetDescriptor
+	if cfg.Skills.Enabled {
+		for _, skillsDir := range configuredSkillPaths(cfg) {
+			if strings.TrimSpace(skillsDir) == "" {
+				continue
+			}
+			out = append(out, ToolsetDescriptor{
+				Name:   "skills:" + filepath.Base(skillsDir),
+				Kind:   "skill",
+				Source: skillsDir,
+			})
+		}
+	}
+	for _, server := range cfg.MCP.Servers {
+		if !server.Enabled || strings.TrimSpace(server.Command) == "" {
+			continue
+		}
+		source := strings.TrimSpace(strings.Join(append([]string{server.Command}, server.Args...), " "))
+		out = append(out, ToolsetDescriptor{
+			Name:                 "mcp:" + firstNonEmpty(server.Name, server.Command),
+			Kind:                 "mcp",
+			Source:               source,
+			Tools:                append([]string(nil), server.Tools...),
+			RequiresConfirmation: server.RequiresConfirmation,
+		})
+	}
+	return out
 }
 
 // NewFromConfig creates an agent with the shared Superman runtime wiring:
@@ -53,6 +108,8 @@ func NewFromConfig(llm model.LLM, cfg *config.Config, build BuildConfig) (adkage
 
 	deps := tool.Dependencies{
 		Config:         cfg,
+		Permissions:    build.PermissionService,
+		FileTracker:    build.SessionService,
 		ExpertManager:  expertRegistry,
 		DelegateRunner: delegateRunner,
 		ExpertTools:    build.EnableExpertTools,
@@ -72,17 +129,7 @@ func NewFromConfig(llm model.LLM, cfg *config.Config, build BuildConfig) (adkage
 		extraPlugins = append(extraPlugins, hookMgr.Plugin())
 	}
 
-	var agentToolsets []adktool.Toolset
-	skillsDir := filepath.Join(cfg.Workspace, "skills")
-	skillFS := os.DirFS(skillsDir)
-	skillSource := skill.NewFileSystemSource(skillFS)
-	skillTS, err := skilltoolset.New(context.Background(), skilltoolset.Config{Source: skillSource})
-	if err != nil {
-		log.Printf("[agent] skill toolset: %v", err)
-	} else {
-		agentToolsets = append(agentToolsets, skillTS)
-		log.Printf("[agent] skill toolset loaded from %s", skillsDir)
-	}
+	agentToolsets := buildToolsets(context.Background(), cfg)
 
 	a, err := llmagent.New(llmagent.Config{
 		Name:                build.Name,
@@ -101,50 +148,121 @@ func NewFromConfig(llm model.LLM, cfg *config.Config, build BuildConfig) (adkage
 	return a, extraPlugins, nil
 }
 
-func instructionProvider(build BuildConfig) func(adkagent.ReadonlyContext) (string, error) {
-	builder := strings.Builder{}
-	return func(adkagent.ReadonlyContext) (string, error) {
-		defer builder.Reset()
-		builder.WriteString(build.Instruction)
-		if build.SOPContent != "" {
-			builder.WriteString("\n\n## SOP Rules\n")
-			builder.WriteString(build.SOPContent)
-		}
-		if build.MemoryService != nil {
-			if l0Content := build.MemoryService.GetL0Content(); l0Content != "" {
-				builder.WriteString("\n\n")
-				builder.WriteString(l0Content)
-			}
-		}
-		return builder.String(), nil
+func buildToolsets(ctx context.Context, cfg *config.Config) []adktool.Toolset {
+	var toolsets []adktool.Toolset
+	toolsets = append(toolsets, buildSkillToolsets(ctx, cfg)...)
+	toolsets = append(toolsets, buildMCPToolsets(cfg)...)
+	return toolsets
+}
+
+func buildSkillToolsets(ctx context.Context, cfg *config.Config) []adktool.Toolset {
+	if cfg == nil || !cfg.Skills.Enabled {
+		return nil
 	}
+	var toolsets []adktool.Toolset
+	for _, skillsDir := range configuredSkillPaths(cfg) {
+		if strings.TrimSpace(skillsDir) == "" {
+			continue
+		}
+		skillFS := os.DirFS(skillsDir)
+		skillSource := skill.NewFileSystemSource(skillFS)
+		skillTS, err := skilltoolset.New(ctx, skilltoolset.Config{
+			Name:   "skills:" + filepath.Base(skillsDir),
+			Source: skillSource,
+		})
+		if err != nil {
+			log.Printf("[agent] skill toolset %s: %v", skillsDir, err)
+			continue
+		}
+		toolsets = append(toolsets, skillTS)
+		log.Printf("[agent] skill toolset loaded from %s", skillsDir)
+	}
+	return toolsets
+}
+
+func configuredSkillPaths(cfg *config.Config) []string {
+	if cfg == nil {
+		return nil
+	}
+	if len(cfg.Skills.Paths) > 0 {
+		return cfg.Skills.Paths
+	}
+	return []string{filepath.Join(cfg.Workspace, "skills")}
+}
+
+func buildMCPToolsets(cfg *config.Config) []adktool.Toolset {
+	if cfg == nil {
+		return nil
+	}
+	var toolsets []adktool.Toolset
+	for _, server := range cfg.MCP.Servers {
+		if !server.Enabled || strings.TrimSpace(server.Command) == "" {
+			continue
+		}
+		ts, err := mcptoolset.New(mcptoolset.Config{
+			Transport: &mcp.CommandTransport{
+				Command: exec.Command(server.Command, server.Args...),
+			},
+			ToolFilter:                  mcpToolFilter(server.Tools),
+			RequireConfirmation:         server.RequiresConfirmation,
+			RequireConfirmationProvider: nil,
+		})
+		if err != nil {
+			log.Printf("[agent] mcp toolset %s: %v", firstNonEmpty(server.Name, server.Command), err)
+			continue
+		}
+		toolsets = append(toolsets, namedToolset{name: "mcp:" + firstNonEmpty(server.Name, server.Command), Toolset: ts})
+		log.Printf("[agent] mcp toolset configured: %s", firstNonEmpty(server.Name, server.Command))
+	}
+	return toolsets
+}
+
+func mcpToolFilter(names []string) adktool.Predicate {
+	if len(names) == 0 {
+		return nil
+	}
+	return adktool.StringPredicate(names)
+}
+
+type namedToolset struct {
+	name string
+	adktool.Toolset
+}
+
+func (n namedToolset) Name() string {
+	if n.name != "" {
+		return n.name
+	}
+	return n.Toolset.Name()
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // New creates a new Superman agent with all registered tools, optional SOP rules,
 // L0 index injected into the system prompt, and completed-run signal receivers.
-func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, sopContent string, expertRegistry *expert.Registry, delegateRunner tool.DelegateRunner, evolutionCh chan<- hook.EvolutionSignal) (adkagent.Agent, []*plugin.Plugin, error) {
-	expertDir := ""
-	if cfg.Expert.Enabled {
-		expertDir = cfg.ExpertDir()
-	}
-	memoryDir := ""
-	if memSvc != nil {
-		memoryDir = memSvc.MemoryDir()
-	}
-
+func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, sessionSvc *supermansession.Service, sopContent string, expertRegistry *expert.Registry, delegateRunner tool.DelegateRunner, evolutionCh chan<- hook.EvolutionSignal) (adkagent.Agent, []*plugin.Plugin, error) {
 	return NewFromConfig(llm, cfg, BuildConfig{
 		Name:              "superman",
 		Description:       "Superman - general-purpose autonomous AI assistant",
 		Instruction:       systemPrompt,
 		MemoryService:     memSvc,
+		SessionService:    sessionSvc,
+		PermissionService: permission.NewService(permission.NewPolicy(cfg.Permissions.SkipRequests, cfg.Permissions.AllowedTools, cfg.Permissions.RiskyTools)),
+		ContextMessages:   12,
 		SOPContent:        sopContent,
 		ExpertRegistry:    expertRegistry,
 		DelegateRunner:    delegateRunner,
 		EnableExpertTools: true,
 		EvolutionSignal: hook.EvolutionSignal{
-			Role:      "superman",
-			MemoryDir: memoryDir,
-			ExpertDir: expertDir,
+			UserID: "tui-user",
+			Role:   "superman",
 		},
 		EvolutionCh: evolutionCh,
 	})
@@ -152,5 +270,5 @@ func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, sopContent s
 
 // NewWithoutMemory creates an agent without a memory service (for simple CLI usage).
 func NewWithoutMemory(llm model.LLM, cfg *config.Config) (adkagent.Agent, []*plugin.Plugin, error) {
-	return New(llm, cfg, nil, "", nil, nil, nil)
+	return New(llm, cfg, nil, nil, "", nil, nil, nil)
 }

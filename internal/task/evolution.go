@@ -24,6 +24,8 @@ import (
 	"github.com/ai4next/superman/internal/global"
 	"github.com/ai4next/superman/internal/hook"
 	"github.com/ai4next/superman/internal/memory"
+	supermanruntime "github.com/ai4next/superman/internal/runtime"
+	supermansession "github.com/ai4next/superman/internal/session"
 	"github.com/ai4next/superman/internal/tool"
 )
 
@@ -51,36 +53,19 @@ type evolutionPromptData struct {
 //   - L0 (runtime index) → l1.toml sections + l2/*.md names
 //   - L1 (facts)         → l1.toml
 //   - L2 (SOPs)          → l2/*.md
-//   - L3 (sessions)      → l3/raw_sessions/*.jsonl
+//   - Session logs       → sessions/*.log
 //   - Expert definitions → {expertDir}/{name}/expert.yaml when expertDir is set
 type Evolution struct {
-	runner *runner.Runner
-	signal chan hook.EvolutionSignal
+	runner   *runner.Runner
+	signal   chan hook.EvolutionSignal
+	sessions *supermansession.Service
+	broker   *supermanruntime.Broker
 }
 
 // NewEvolution creates an ADK agent for memory consolidation and optional expert cultivation.
-func NewEvolution(llm model.LLM) (*Evolution, error) {
+func NewEvolution(llm model.LLM, sessions *supermansession.Service) (*Evolution, error) {
 	deps := tool.Dependencies{
-		Config: &config.Config{
-			Tools: config.ToolsConfig{
-				Read: config.ReadConfig{
-					Enabled: true,
-					MaxSize: 10 * 1024 * 1024,
-				},
-				Write: config.WriteConfig{
-					Enabled: true,
-					MaxSize: 10 * 1024 * 1024,
-				},
-				Patch: config.PatchConfig{
-					Enabled: true,
-				},
-				CodeRun: config.CodeRunConfig{
-					Enabled:          true,
-					Timeout:          config.Duration(30 * time.Second),
-					AllowedLanguages: []string{"python", "bash"},
-				},
-			},
-		},
+		Config: evolutionToolConfig(),
 	}
 
 	tools := tool.RegisterAll(deps)
@@ -108,9 +93,40 @@ func NewEvolution(llm model.LLM) (*Evolution, error) {
 	}
 
 	return &Evolution{
-		runner: r,
-		signal: make(chan hook.EvolutionSignal, 16),
+		runner:   r,
+		signal:   make(chan hook.EvolutionSignal, 16),
+		sessions: sessions,
 	}, nil
+}
+
+func evolutionToolConfig() *config.Config {
+	return &config.Config{
+		Permissions: config.PermissionsConfig{
+			SkipRequests: true,
+		},
+		Tools: config.ToolsConfig{
+			Read: config.ReadConfig{
+				Enabled: true,
+				MaxSize: 10 * 1024 * 1024,
+			},
+			Write: config.WriteConfig{
+				Enabled: true,
+				MaxSize: 10 * 1024 * 1024,
+			},
+			Patch: config.PatchConfig{
+				Enabled: true,
+			},
+			CodeRun: config.CodeRunConfig{
+				Enabled:          true,
+				Timeout:          config.Duration(30 * time.Second),
+				AllowedLanguages: []string{"python", "bash"},
+			},
+		},
+	}
+}
+
+func (e *Evolution) SetBroker(broker *supermanruntime.Broker) {
+	e.broker = broker
 }
 
 func renderEvolutionPrompt(data evolutionPromptData) (string, error) {
@@ -131,25 +147,33 @@ func evolutionDataFromSignal(signal hook.EvolutionSignal) evolutionPromptData {
 	if cfg != nil && cfg.Memory.L1.MaxSections > 0 {
 		maxL1Sections = cfg.Memory.L1.MaxSections
 	}
+	memoryDir := global.MemoryDir()
+	expertDir := ""
+	if signal.Role == "superman" {
+		expertDir = global.ExpertsDir()
+	}
 	canCreateExpert := false
-	if signal.Role == "superman" && signal.ExpertDir != "" {
+	if expertDir != "" {
 		canCreateExpert = true
 		if cfg != nil && cfg.Expert.MaxCount > 0 {
-			canCreateExpert = countExpertDirs(signal.ExpertDir) < cfg.Expert.MaxCount
+			canCreateExpert = countExpertDirs(expertDir) < cfg.Expert.MaxCount
 		}
 	}
-	l1Path := filepath.Join(signal.MemoryDir, "l1.toml")
+	l1Path := global.MemoryL1Path(memoryDir)
+	sopDir := global.MemoryL2Dir(memoryDir)
+	sessionDir := global.SessionsDir()
+	sessionLogPath := global.SessionLogPath(signal.SessionID)
 	l1Sections := memory.CountL1Sections(l1Path)
 	return evolutionPromptData{
 		L1Path:             l1Path,
-		SopDir:             filepath.Join(signal.MemoryDir, "l2"),
-		L3Path:             filepath.Join(signal.MemoryDir, "l3", "raw_sessions", signal.SessionID+".jsonl"),
-		ExpertDir:          signal.ExpertDir,
-		SessionDir:         signal.SessionDir,
+		SopDir:             sopDir,
+		L3Path:             sessionLogPath,
+		ExpertDir:          expertDir,
+		SessionDir:         sessionDir,
 		CanAddL1Section:    l1Sections < maxL1Sections,
 		CanDeleteL1Section: l1Sections >= maxL1Sections,
 		CanCreateExpert:    canCreateExpert,
-		CultivateExperts:   signal.Role == "superman" && signal.ExpertDir != "",
+		CultivateExperts:   expertDir != "",
 	}
 }
 
@@ -179,21 +203,24 @@ func (e *Evolution) Loop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case signal := <-e.signal:
+			e.publish(supermanruntime.EvolutionStarted(signal.SessionID, signal.Role))
 			if err := e.runAgent(ctx, signal); err != nil {
+				e.publish(supermanruntime.EvolutionFailed(signal.SessionID, signal.Role, err))
 				log.Printf("[evolution] %s: %v", signal.SessionID, err)
+			} else {
+				e.publish(supermanruntime.EvolutionFinished(signal.SessionID, signal.Role, ""))
 			}
 		}
 	}
 }
 
-// runAgent launches the evolution agent with the signal-scoped session,
-// role, and directory information as its prompt.
+// runAgent launches the evolution agent with the signal-scoped session.
 func (e *Evolution) runAgent(ctx context.Context, signal hook.EvolutionSignal) error {
 	if signal.SessionID == "" {
 		return fmt.Errorf("missing session ID")
 	}
-	if signal.MemoryDir == "" {
-		return fmt.Errorf("missing memory dir")
+	if e.runner == nil {
+		return fmt.Errorf("missing evolution runner")
 	}
 
 	data := evolutionDataFromSignal(signal)
@@ -203,7 +230,7 @@ func (e *Evolution) runAgent(ctx context.Context, signal hook.EvolutionSignal) e
 	}
 
 	log.Printf("[evolution] processing session %s", signal.SessionID)
-	msg := genai.NewContentFromText(instruction+"\n\nEvolve system knowledge from session: "+signal.SessionID, "user")
+	msg := genai.NewContentFromText(instruction, genai.RoleUser)
 	for evt, err := range e.runner.Run(ctx, "evolution", "evolution-"+signal.SessionID, msg, adkagent.RunConfig{}) {
 		if err != nil {
 			return fmt.Errorf("agent run: %w", err)
@@ -215,6 +242,12 @@ func (e *Evolution) runAgent(ctx context.Context, signal hook.EvolutionSignal) e
 		return fmt.Errorf("validate output: %w", err)
 	}
 	return nil
+}
+
+func (e *Evolution) publish(event supermanruntime.Event) {
+	if e != nil && e.broker != nil {
+		e.broker.Publish(event)
+	}
 }
 
 func validateEvolutionOutput(data evolutionPromptData) error {

@@ -12,7 +12,6 @@ import (
 
 	adkplugin "google.golang.org/adk/plugin"
 	"google.golang.org/adk/runner"
-	adksession "google.golang.org/adk/session"
 
 	"github.com/ai4next/superman/internal/agent"
 	"github.com/ai4next/superman/internal/expert"
@@ -20,6 +19,8 @@ import (
 	"github.com/ai4next/superman/internal/memory"
 	"github.com/ai4next/superman/internal/model"
 	"github.com/ai4next/superman/internal/plugin"
+	supermanruntime "github.com/ai4next/superman/internal/runtime"
+	supermansession "github.com/ai4next/superman/internal/session"
 	"github.com/ai4next/superman/internal/task"
 	"github.com/ai4next/superman/internal/tool"
 )
@@ -36,15 +37,14 @@ func RunServe(cmd *cobra.Command, args []string) error {
 	}
 
 	// Memory service with file persistence
-	supermanMemoryDir := filepath.Join(cfg.Workspace, "memory")
-	memSvc := memory.New(supermanMemoryDir)
+	memSvc := memory.New()
 	if err := memSvc.LoadFromDisk(); err != nil {
 		log.Printf("[cli] memory load warning: %v", err)
 	}
 
 	// Load SOP content from l2/ directory
 	var sopContent string
-	l2Dir := filepath.Join(supermanMemoryDir, "l2")
+	l2Dir := global.L2Dir()
 	if files, err := os.ReadDir(l2Dir); err == nil {
 		for _, f := range files {
 			if f.IsDir() || !strings.HasSuffix(f.Name(), ".md") {
@@ -57,11 +57,19 @@ func RunServe(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	sessionService, err := supermansession.NewService()
+	if err != nil {
+		return fmt.Errorf("create session service: %w", err)
+	}
+
 	// Evolution service: ADK agent for memory consolidation + optional expert cultivation.
-	evolution, err := task.NewEvolution(llm)
+	evolution, err := task.NewEvolution(llm, sessionService)
 	if err != nil {
 		return fmt.Errorf("create evolution agent: %w", err)
 	}
+	evolutionBroker := supermanruntime.NewBroker()
+	evolution.SetBroker(evolutionBroker)
+	supermanruntime.NewAuditLogger(global.RuntimeEventsPath()).Subscribe(ctx, evolutionBroker)
 	go evolution.Loop(ctx)
 
 	evolutionCh := evolution.SignalCh()
@@ -70,15 +78,13 @@ func RunServe(cmd *cobra.Command, args []string) error {
 	var expertRegistry *expert.Registry
 	var delegateRunner tool.DelegateRunner
 	if cfg.Expert.Enabled {
-		expertRegistry = expert.NewRegistry(cfg.ExpertDir())
+		expertRegistry = expert.NewRegistry(global.ExpertsDir())
 		if err := expertRegistry.LoadFromDisk(); err != nil {
 			log.Printf("[expert] load warning: %v", err)
 		}
-		delegateRunner = newDelegateService(llm, expertRegistry, evolutionCh)
+		delegateRunner = newDelegateService(llm, expertRegistry)
 		log.Printf("[expert] loaded %d experts", len(expertRegistry.List()))
 	}
-
-	sessionService := adksession.InMemoryService()
 
 	// Plugins
 	var adkPlugins []*adkplugin.Plugin
@@ -96,7 +102,7 @@ func RunServe(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	a, extraPlugins, err := agent.New(llm, cfg, memSvc, sopContent, expertRegistry, delegateRunner, evolutionCh)
+	a, extraPlugins, err := agent.New(llm, cfg, memSvc, sessionService, sopContent, expertRegistry, delegateRunner, evolutionCh)
 	if err != nil {
 		return fmt.Errorf("create agent: %w", err)
 	}

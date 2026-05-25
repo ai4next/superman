@@ -1,7 +1,7 @@
 workspace: ${HOME}/.sm
 
 model:
-  provider: openai
+  provider: openai          # gemini | openai | deepseek | claude | ollama
   name: gpt-4o
   base_url: https://api.openai.com/v1
   api_key: ${OPENAI_API_KEY}
@@ -16,34 +16,22 @@ tools:
     allowed_languages: [python, bash, sh]
   read:
     enabled: true
-    max_size: 10485760
+    max_size: 10485760       # 10MB
   write:
     enabled: true
-    max_size: 10485760
+    max_size: 10485760       # 10MB
   patch:
     enabled: true
-  web_scan:
-    enabled: false
-    timeout: 15s
-  web_execute:
-    enabled: false
-    timeout: 15s
-    headless: false
-    user_data_dir: ${HOME}/.sm/chrome-profile
-    browser_path: ""
-    remote_debugging_url: ""
-  browser_use:
-    enabled: false
-    timeout: 15s
-    headless: false
-    disable_security: false
-    extra_chromium_args: []
-    user_data_dir: ${HOME}/.sm/browser-use-profile
-    browser_path: "/Applications/Chrome.app/Contents/MacOS/Google\ Chrome"
-    proxy_server: ""
   ask_user:
     enabled: true
 
+# Granular tool permission control
+permissions:
+  skip_requests: false       # true = skip all HITL confirmation prompts
+  allowed_tools: []          # tools that never prompt for confirmation
+  risky_tools: [write, patch, code_run]
+
+# Memory index limits
 memory:
   l1:
     max_index_items: 50
@@ -51,24 +39,46 @@ memory:
   l2:
     max_index_items: 50
 
-plugins:
-  - name: logger
-    enabled: true
-  - name: session_reaper
-    enabled: true
-    config:
-      max_turns: 100
-      max_age: 2h
+# Skill system — multiple paths supported
+skills:
+  enabled: true
+  paths:
+    - ${HOME}/.sm/skills
+    - ./skills
 
+# MCP server integration
+mcp:
+  servers:
+    - name: my-server
+      enabled: true
+      command: npx
+      args: [-y, @modelcontextprotocol/server-filesystem, /tmp]
+      tools: []                 # empty = all tools; specify names to filter
+      requires_confirmation: true
+
+# Session management
 session:
+  app_name: superman
   max_turns: 75
+  archive_interval: 6h
+  session_ttl: 48h
+  loop_detection:
+    enabled: true
+    window_size: 10
+    max_repeats: 5
 
+# Autonomous reflection
 reflect:
   autonomous:
     idle_timeout: 30m
   scheduler:
     tasks_dir: ./config/tasks
 
+# Expert cultivation/delegation
 expert:
   enabled: true
   max_count: 10
+
+plugins:
+  - name: session_reaper
+    enabled: true

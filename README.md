@@ -3,7 +3,7 @@
 
 ![Logo](assets/banner.png)
 
-General-purpose autonomous AI agent. Multi-model support, 8 built-in tools, flat-file memory, expert delegation.
+General-purpose autonomous AI agent. Multi-model support, 6 built-in tools, flat-file memory, expert delegation, MCP server integration, persistent session management, and Bubble Tea v2 TUI.
 
 ## Design Philosophy
 
@@ -34,13 +34,17 @@ go run . run "What's in this directory?"
 ## Features
 
 - **Multi-model support** — Gemini (Vertex AI), OpenAI, DeepSeek, Claude, Ollama, and any OpenAI-compatible API
-- **8 built-in tools** — code execution, file read/write/patch, web scanning, browser execution, user interaction, expert delegation
+- **6 built-in tools** — code execution, file read/write/patch, user interaction, expert delegation
+- **MCP server integration** — plug in any MCP-compatible tool server via config (stdin/stdout transport)
+- **Persistent sessions** — SQLite-backed session/message store with compact `U/A/T/O` evolution logs, automatic compaction, file revision tracking, and session export/import
+- **Runtime audit** — Events (tool calls, text delta, permissions, errors, evolutions) streamed to a queryable JSONL audit log
 - **Flat-file memory (L0-L3)** — runtime index (L0), global facts (L1), SOP files (L2), session archive (L3)
 - **Expert delegation** — dispatch tasks to expert sub-agents with isolated memory
 - **Plugin system** — unified run/model/tool logging and session reaper
-- **TUI interface** — Bubble Tea + Lipgloss, dark theme, Emacs-style keybindings
+- **TUI interface** — Bubble Tea v2 + Lipgloss v2, dark theme, Emacs-style keybindings, sidebar, dialog system
 - **Hook system** — 11 lifecycle event hooks (before/after run, tool, model, etc.) with external script execution via JSON stdin/stdout protocol
-- **Skill system** — filesystem-based skills auto-loaded via ADK skilltoolset, compatible with Claude Code SKILL.md format
+- **Skill system** — filesystem-based skills auto-loaded via ADK skilltoolset, compatible with Claude Code SKILL.md format, supports multiple skill paths
+- **Permission system** — granular per-tool allow/deny/confirm with skip-request skip lists and risky tool classification
 
 ## Commands
 
@@ -52,6 +56,25 @@ go run . run "What's in this directory?"
 | `sm run -p "hello"` | Run with `--prompt` flag |
 | `sm reflect` | Start autonomous idle-watch + scheduler mode |
 | `sm configure` | Show or initialize configuration |
+| `sm toolsets` | List configured ADK Skill and MCP toolsets |
+| `sm sessions list` | List persistent sessions |
+| `sm sessions show <id>` | Show session messages |
+| `sm sessions last` | Show the most recently updated session |
+| `sm sessions search <query>` | Search persisted session messages |
+| `sm sessions files <id>` | Show session working files |
+| `sm sessions history <id>` | Show session file revision history |
+| `sm sessions diff <id> <path>` | Show file revision diff |
+| `sm sessions revert <id> <path>` | Revert a file to its previous revision |
+| `sm sessions export <id>` | Export session (markdown/json/jsonl) |
+| `sm sessions import <path>` | Import a session export |
+| `sm sessions compact <id>` | Compact older session context into a summary |
+| `sm sessions delete <id>` | Delete a persistent session |
+| `sm sessions rename <id> <title>` | Rename a session |
+| `sm sessions queue <id>` | Inspect queued prompts for a session |
+| `sm sessions storage` | Inspect persistent session storage stats |
+| `sm sessions storage gc` | Remove orphaned file revision snapshots |
+| `sm runtime events` | List runtime audit events |
+| `sm runtime summary` | Summarize runtime audit events |
 
 ## Configuration
 
@@ -68,9 +91,37 @@ tools:
   code_run:
     enabled: true
     timeout: 30s
-  web_scan:
+
+# Granular tool permission control
+permissions:
+  skip_requests: false       # skip all HITL prompts for allowed tools
+  allowed_tools: []          # tools that never prompt for confirmation
+  risky_tools: [write, patch, code_run]
+
+# Skill system — multiple paths supported
+skills:
+  enabled: true
+  paths:
+    - ${HOME}/.sm/skills
+    - ./skills
+
+# MCP server integration
+mcp:
+  servers:
+    - name: my-server
+      enabled: true
+      command: npx
+      args: [-y, @modelcontextprotocol/server-filesystem, /tmp]
+      tools: []                 # empty = all tools; specify names to filter
+      requires_confirmation: true
+
+# Session management
+session:
+  max_turns: 75
+  loop_detection:
     enabled: true
-  # ... each tool can be individually enabled/disabled
+    window_size: 10
+    max_repeats: 5
 
 plugins:
   - name: logger
@@ -87,8 +138,6 @@ Environment variables override config: `SUPERMAN_MODEL_PROVIDER=openai`, `SUPERM
 | `read` | Read file lines |
 | `write` | Write files |
 | `patch` | Replace one exact text match in a file |
-| `web_scan` | Fetch web pages, strip HTML, return text (SSRF-protected) |
-| `web_execute` | Browser JavaScript execution through ChromeDP; can reuse a configured Chrome profile or remote debugging endpoint |
 | `ask_user` | Interrupt to ask the user a question |
 | `delegate_to_expert` | Delegate a task to an expert for independent execution |
 
@@ -124,7 +173,7 @@ echo '{"allow": true}'
 
 ### Skills
 
-Create skill directories under `skills/`. Each skill is a `SKILL.md` file with YAML frontmatter.
+Create skill directories under `skills/` or any configured skill path. Each skill is a `SKILL.md` file with YAML frontmatter.
 
 ```
 skills/
@@ -148,6 +197,25 @@ You are a code review expert. Focus on:
 3. Maintainability — naming, separation of concerns
 ```
 
+### MCP Servers
+
+Superman supports any MCP-compatible server via stdin/stdout transport. Configure servers in `config.yaml`:
+
+```yaml
+mcp:
+  servers:
+    - name: filesystem
+      command: npx
+      args: [-y, @modelcontextprotocol/server-filesystem, /tmp]
+    - name: github
+      command: npx
+      args: [-y, @modelcontextprotocol/server-github]
+      tools: [issues, pulls]
+      requires_confirmation: true
+```
+
+Use `sm toolsets` to verify configured servers and their available tools.
+
 ## Project Structure
 
 ```
@@ -156,17 +224,21 @@ superman/
 ├── internal/
 │   ├── agent/
 │   │   ├── agent.go                 # Agent factory with memory/SOP injection
+│   │   ├── context.go               # Context builder for agent runs
 │   │   ├── prompt/system.txt        # System prompt
-│   │   └── tools/                   # 8 tool implementations
+│   │   └── toolsets.go              # Skill + MCP toolset construction
 │   ├── config/                      # YAML + env config (viper)
-│   ├── cli/                         # Cobra CLI commands (run, reflect, configure)
-│   ├── tui/                         # Bubble Tea TUI
-│   │   ├── app.go                   # Model, cursor writer, event handling
-│   │   ├── components/              # Chat, input line, toolbar renderers
-│   │   └── styles/                  # Dark theme
+│   ├── cli/                         # Cobra CLI commands (run, reflect, configure, toolsets, sessions, runtime)
+│   ├── tui/                         # Bubble Tea v2 TUI
+│   │   ├── tui.go                   # Compatibility wrapper
+│   │   ├── app/                     # Model, runtime, sessions, commands, dialogs, layout
+│   │   ├── components/              # Chat, input line, toolbar, sidebar renderers
+│   │   └── styles/                  # Dark theme, icons, color themes
 │   ├── model/                       # Multi-provider LLM factory
 │   ├── memory/                      # L0-L3 flat-file memory (rules, profile, SOP, sessions)
-│   ├── session/                     # Session manager with JSONL persistence
+│   ├── session/                     # Persistent session manager with JSONL store, file tracking, references
+│   ├── runtime/                     # Event-driven runtime with audit logging
+│   ├── permission/                  # HITL prompt policy (skip-request lists, risky tool classification)
 │   ├── plugin/                      # Plugin registry + built-ins
 │   ├── hook/                        # Hook manager + script runner
 │   ├── reflect/                     # Autonomous idle watcher + scheduler
@@ -194,7 +266,12 @@ All runtime data is stored under `workspace` in `config.yaml`. If omitted, it de
 ├── memory/                               # Superman's flat-file memory
 │   ├── l1.toml                           # L1 global facts
 │   ├── l2/                               # L2 SOP files (*.md)
-│   └── l3/raw_sessions/                  # L3 raw session JSONL archives
+├── state.db                              # SQLite session/message metadata store
+├── sessions/                             # Compact session logs and snapshots
+│   ├── <id>.log                          # LLM evolution projection
+│   └── snapshots/                        # File revision snapshots
+├── runtime/
+│   └── events.jsonl                      # Runtime audit event log
 └── experts/
     └── {expert_name}/
         ├── calls.jsonl                   # Expert consult/delegate call log
@@ -208,7 +285,7 @@ go build -o sm .
 ./sm --help
 ```
 
-Requires Go 1.25+.
+Requires Go 1.26+.
 
 ## License
 

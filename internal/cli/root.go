@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -20,13 +19,12 @@ func ensureDirs() error {
 	cfg := global.Config()
 	dirs := []string{
 		cfg.Workspace,
-		filepath.Join(cfg.Workspace, "skills"),
-		filepath.Join(cfg.Workspace, "hooks"),
-		cfg.ExpertDir(),
-		filepath.Join(cfg.Workspace, "memory"),
-		filepath.Join(cfg.Workspace, "memory", "l2"),
-		filepath.Join(cfg.Workspace, "memory", "l3"),
-		filepath.Join(cfg.Workspace, "memory", "l3", "raw_sessions"),
+		global.SkillsDir(),
+		global.HooksDir(),
+		global.ExpertsDir(),
+		global.MemoryDir(),
+		global.L2Dir(),
+		global.SessionsDir(),
 	}
 	for _, d := range dirs {
 		if d == "" {
@@ -60,4 +58,7 @@ func init() {
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(configureCmd)
 	rootCmd.AddCommand(reflectCmd)
+	rootCmd.AddCommand(toolsetsCmd)
+	rootCmd.AddCommand(sessionsCmd)
+	rootCmd.AddCommand(runtimeCmd)
 }

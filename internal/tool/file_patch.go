@@ -23,16 +23,19 @@ type filePatchOutput struct {
 
 func newPatchTool(deps Dependencies) tool.Tool {
 	handler := func(tctx tool.Context, input filePatchInput) (filePatchOutput, error) {
-		return patchFile(deps, input)
+		return patchFile(tctx, deps, input)
 	}
 	t, _ := functiontool.New(functiontool.Config{
 		Name:        "patch",
 		Description: "Replace one exact text match in a file.",
+		RequireConfirmationProvider: func(input filePatchInput) bool {
+			return deps.requiresConfirmation("patch", "replace", input)
+		},
 	}, handler)
 	return t
 }
 
-func patchFile(deps Dependencies, input filePatchInput) (filePatchOutput, error) {
+func patchFile(tctx tool.Context, deps Dependencies, input filePatchInput) (filePatchOutput, error) {
 	abs, err := filepath.Abs(input.Path)
 	if err != nil {
 		return filePatchOutput{}, fmt.Errorf("invalid path: %w", err)
@@ -58,8 +61,10 @@ func patchFile(deps Dependencies, input filePatchInput) (filePatchOutput, error)
 		return filePatchOutput{}, fmt.Errorf("write failed: %w", err)
 	}
 
-	return filePatchOutput{
+	out := filePatchOutput{
 		FilePath: abs,
 		Applied:  true,
-	}, nil
+	}
+	recordFileRevision(tctx, deps, abs, "patch", content, newContent, false)
+	return out, nil
 }

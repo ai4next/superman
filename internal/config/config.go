@@ -1,21 +1,28 @@
 package config
 
-import (
-	"path/filepath"
-	"time"
-)
+import "time"
 
 // Config is the top-level configuration for the Superman agent.
 type Config struct {
-	Workspace string         `mapstructure:"workspace"`
-	Model     ModelConfig    `mapstructure:"model"`
-	Server    ServerConfig   `mapstructure:"server"`
-	Tools     ToolsConfig    `mapstructure:"tools"`
-	Memory    MemoryConfig   `mapstructure:"memory"`
-	Plugins   []PluginConfig `mapstructure:"plugins"`
-	Session   SessionConfig  `mapstructure:"session"`
-	Reflect   ReflectConfig  `mapstructure:"reflect"`
-	Expert    ExpertConfig   `mapstructure:"expert"`
+	Workspace   string            `mapstructure:"workspace"`
+	Model       ModelConfig       `mapstructure:"model"`
+	Server      ServerConfig      `mapstructure:"server"`
+	Tools       ToolsConfig       `mapstructure:"tools"`
+	Memory      MemoryConfig      `mapstructure:"memory"`
+	Permissions PermissionsConfig `mapstructure:"permissions"`
+	Plugins     []PluginConfig    `mapstructure:"plugins"`
+	Skills      SkillsConfig      `mapstructure:"skills"`
+	MCP         MCPConfig         `mapstructure:"mcp"`
+	Session     SessionConfig     `mapstructure:"session"`
+	Reflect     ReflectConfig     `mapstructure:"reflect"`
+	Expert      ExpertConfig      `mapstructure:"expert"`
+}
+
+// PermissionsConfig controls HITL prompts for sensitive tool calls.
+type PermissionsConfig struct {
+	SkipRequests bool     `mapstructure:"skip_requests"`
+	AllowedTools []string `mapstructure:"allowed_tools"`
+	RiskyTools   []string `mapstructure:"risky_tools"`
 }
 
 // ModelConfig configures the LLM provider.
@@ -33,14 +40,11 @@ type ServerConfig struct {
 
 // ToolsConfig contains sub-configs for each tool.
 type ToolsConfig struct {
-	CodeRun    CodeRunConfig    `mapstructure:"code_run"`
-	Read       ReadConfig       `mapstructure:"read"`
-	Write      WriteConfig      `mapstructure:"write"`
-	Patch      PatchConfig      `mapstructure:"patch"`
-	WebScan    WebScanConfig    `mapstructure:"web_scan"`
-	WebExecute WebExecuteConfig `mapstructure:"web_execute"`
-	BrowserUse BrowserUseConfig `mapstructure:"browser_use"`
-	AskUser    AskUserConfig    `mapstructure:"ask_user"`
+	CodeRun CodeRunConfig `mapstructure:"code_run"`
+	Read    ReadConfig    `mapstructure:"read"`
+	Write   WriteConfig   `mapstructure:"write"`
+	Patch   PatchConfig   `mapstructure:"patch"`
+	AskUser AskUserConfig `mapstructure:"ask_user"`
 }
 
 // CodeRunConfig allows executing code snippets.
@@ -65,34 +69,6 @@ type WriteConfig struct {
 // PatchConfig allows patching local files.
 type PatchConfig struct {
 	Enabled bool `mapstructure:"enabled"`
-}
-
-// WebScanConfig allows scraping web pages.
-type WebScanConfig struct {
-	Enabled bool     `mapstructure:"enabled"`
-	Timeout Duration `mapstructure:"timeout"`
-}
-
-// WebExecuteConfig allows automated browser actions.
-type WebExecuteConfig struct {
-	Enabled            bool     `mapstructure:"enabled"`
-	Timeout            Duration `mapstructure:"timeout"`
-	Headless           bool     `mapstructure:"headless"`
-	UserDataDir        string   `mapstructure:"user_data_dir"`
-	BrowserPath        string   `mapstructure:"browser_path"`
-	RemoteDebuggingURL string   `mapstructure:"remote_debugging_url"`
-}
-
-// BrowserUseConfig enables high-level browser actions.
-type BrowserUseConfig struct {
-	Enabled           bool     `mapstructure:"enabled"`
-	Timeout           Duration `mapstructure:"timeout"`
-	Headless          bool     `mapstructure:"headless"`
-	DisableSecurity   bool     `mapstructure:"disable_security"`
-	ExtraChromiumArgs []string `mapstructure:"extra_chromium_args"`
-	UserDataDir       string   `mapstructure:"user_data_dir"`
-	BrowserPath       string   `mapstructure:"browser_path"`
-	ProxyServer       string   `mapstructure:"proxy_server"`
 }
 
 // AskUserConfig allows asking the user for input.
@@ -128,12 +104,38 @@ type PluginConfig struct {
 	Config  map[string]interface{} `mapstructure:"config"`
 }
 
+type SkillsConfig struct {
+	Enabled bool     `mapstructure:"enabled"`
+	Paths   []string `mapstructure:"paths"`
+}
+
+type MCPConfig struct {
+	Servers []MCPServerConfig `mapstructure:"servers"`
+}
+
+type MCPServerConfig struct {
+	Name                 string   `mapstructure:"name"`
+	Enabled              bool     `mapstructure:"enabled"`
+	Command              string   `mapstructure:"command"`
+	Args                 []string `mapstructure:"args"`
+	Tools                []string `mapstructure:"tools"`
+	RequiresConfirmation bool     `mapstructure:"requires_confirmation"`
+}
+
 // SessionConfig configures session management.
 type SessionConfig struct {
-	AppName         string   `mapstructure:"app_name"`
-	MaxTurns        int      `mapstructure:"max_turns"`
+	AppName       string              `mapstructure:"app_name"`
+	MaxTurns      int                 `mapstructure:"max_turns"`
+	LoopDetection LoopDetectionConfig `mapstructure:"loop_detection"`
+
 	ArchiveInterval Duration `mapstructure:"archive_interval"`
 	SessionTTL      Duration `mapstructure:"session_ttl"`
+}
+
+type LoopDetectionConfig struct {
+	Enabled    bool `mapstructure:"enabled"`
+	WindowSize int  `mapstructure:"window_size"`
+	MaxRepeats int  `mapstructure:"max_repeats"`
 }
 
 // ReflectConfig configures the reflection subsystem.
@@ -156,22 +158,6 @@ type SchedulerConfig struct {
 type ExpertConfig struct {
 	Enabled  bool `mapstructure:"enabled"`
 	MaxCount int  `mapstructure:"max_count"`
-}
-
-// ExpertDir returns the workspace-scoped expert directory.
-func (c *Config) ExpertDir() string {
-	if c == nil {
-		return ""
-	}
-	return filepath.Join(c.Workspace, "experts")
-}
-
-// ExpertMemoryDir returns the workspace-scoped memory directory for an expert.
-func (c *Config) ExpertMemoryDir(name string) string {
-	if c == nil || name == "" {
-		return ""
-	}
-	return filepath.Join(c.ExpertDir(), name, "memory")
 }
 
 // Duration unmarshals YAML duration strings like "30s", "2h", "24h".

@@ -53,14 +53,3 @@ func TestRegisterAllExpertToolsFlag(t *testing.T) {
 		t.Fatalf("tool %q should be enabled when ExpertTools=true", "delegate_to_expert")
 	}
 }
-
-func TestRegisterAllBrowserUse(t *testing.T) {
-	cfg := &config.Config{}
-	cfg.Tools.BrowserUse.Enabled = true
-
-	tools := RegisterAll(Dependencies{Config: cfg})
-	names := toolNames(tools)
-	if !names["browser_use"] {
-		t.Fatalf("tool %q should be enabled when browser_use.enabled=true", "browser_use")
-	}
-}

@@ -2,12 +2,12 @@ package hook
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"google.golang.org/adk/agent"
@@ -16,6 +16,8 @@ import (
 	adksession "google.golang.org/adk/session"
 	"google.golang.org/adk/tool"
 	"google.golang.org/genai"
+
+	"github.com/ai4next/superman/internal/global"
 )
 
 // eventDirs maps hook event names to their subdirectory names.
@@ -45,12 +47,10 @@ type Manager struct {
 // EvolutionSignal describes one completed agent session that should be
 // processed by background services such as evolution.
 type EvolutionSignal struct {
-	SessionID  string
-	AgentName  string
-	Role       string
-	MemoryDir  string
-	SessionDir string
-	ExpertDir  string
+	SessionID string
+	UserID    string
+	AgentName string
+	Role      string
 }
 
 // NewManager scans the base directory for hook subdirectories and
@@ -235,33 +235,29 @@ func (m *Manager) signalAfterRun(ic agent.InvocationContext) {
 		return
 	}
 
-	signal := m.signal
-	signal.SessionID = sid
-	sessionDir := signal.SessionDir
-	if signal.MemoryDir != "" {
-		sessionDir = filepath.Join(signal.MemoryDir, "l3", "raw_sessions")
-		signal.SessionDir = sessionDir
-	}
-	if sessionDir != "" && ic.Session() != nil {
-		if err := writeSessionJSONL(sessionDir, ic.Session()); err != nil {
+	if ic.Session() != nil {
+		if err := writeSessionLog(ic.Session()); err != nil {
 			log.Printf("[hook] persist session %s: %v", sid, err)
 		}
 	}
 
 	if m.evolutionCh != nil {
+		signal := m.signal
+		signal.SessionID = sid
 		m.evolutionCh <- signal
 	}
 }
 
-func writeSessionJSONL(sessionDir string, sess adksession.Session) error {
-	if sessionDir == "" || sess == nil {
+func writeSessionLog(sess adksession.Session) error {
+	if sess == nil {
 		return nil
 	}
+	sessionDir := global.SessionsDir()
 	if err := os.MkdirAll(sessionDir, 0755); err != nil {
 		return fmt.Errorf("create session dir: %w", err)
 	}
 
-	path := filepath.Join(sessionDir, sess.ID()+".jsonl")
+	path := global.SessionLogPath(sess.ID())
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return fmt.Errorf("open %s: %w", path, err)
@@ -272,15 +268,34 @@ func writeSessionJSONL(sessionDir string, sess adksession.Session) error {
 		return nil
 	}
 	for event := range sess.Events().All() {
-		line, err := json.Marshal(event)
-		if err != nil {
-			return fmt.Errorf("marshal event: %w", err)
+		prefix := "A"
+		if event.Author == "user" {
+			prefix = "U"
 		}
-		if _, err := f.Write(append(line, '\n')); err != nil {
+		if _, err := fmt.Fprintf(f, "%s: %s\n", prefix, quoteLogValue(eventText(event))); err != nil {
 			return fmt.Errorf("write %s: %w", path, err)
 		}
 	}
 	return nil
+}
+
+func eventText(event *adksession.Event) string {
+	if event == nil || event.Content == nil {
+		return ""
+	}
+	var parts []string
+	for _, part := range event.Content.Parts {
+		if strings.TrimSpace(part.Text) != "" {
+			parts = append(parts, strings.TrimSpace(part.Text))
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func quoteLogValue(value string) string {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\r", "\n")
+	return strconv.Quote(value)
 }
 
 // beforeModel handles BeforeModel.
