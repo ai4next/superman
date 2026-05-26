@@ -93,7 +93,8 @@ func TestExecutorRunPersistsReferencesAndAudit(t *testing.T) {
 		t.Fatalf("result = %q", got)
 	}
 
-	files, err := svc.SessionFiles("app", "scheduler-user", "1")
+	extended := svc.(*supermansession.Service)
+	files, err := extended.SessionFiles("app", "scheduler-user", "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +102,7 @@ func TestExecutorRunPersistsReferencesAndAudit(t *testing.T) {
 	if len(files) != 1 || files[0].Path != wantPath {
 		t.Fatalf("files = %#v, want %s", files, wantPath)
 	}
-	refs, err := svc.SessionReferences("app", "scheduler-user", "1")
+	refs, err := extended.SessionReferences("app", "scheduler-user", "1")
 	if err != nil {
 		t.Fatal(err)
 	}

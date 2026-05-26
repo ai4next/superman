@@ -3,7 +3,6 @@ package store
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -96,9 +95,6 @@ func (d *DB) WriteSessionLog(sessionID string, messages []LogMessage) error {
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		return err
-	}
-	for _, ext := range []string{".jsonl", ".json", ".ison"} {
-		_ = os.Remove(filepath.Join(global.SessionsDir(), safeName(sessionID)+ext))
 	}
 	return nil
 }

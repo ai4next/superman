@@ -1,34 +1,33 @@
 package tool
 
 import (
-	"log"
-
+	supermansession "github.com/ai4next/superman/internal/session"
 	adktool "google.golang.org/adk/tool"
 )
 
-func recordFileRead(tctx adktool.Context, deps Dependencies, path string) {
-	if deps.FileTracker == nil || tctx == nil {
+func recordFileRead(tctx adktool.Context, path string) {
+	if tctx == nil {
 		return
 	}
-	if err := deps.FileTracker.RecordFileRead(tctx.AppName(), tctx.UserID(), tctx.SessionID(), path); err != nil {
-		log.Printf("[tool] record file read %s: %v", path, err)
-	}
+	supermansession.AddFileRead(tctx.Actions(), path)
 }
 
-func recordFileWrite(tctx adktool.Context, deps Dependencies, path string) {
-	if deps.FileTracker == nil || tctx == nil {
+func recordFileWrite(tctx adktool.Context, path string) {
+	if tctx == nil {
 		return
 	}
-	if err := deps.FileTracker.RecordFileWrite(tctx.AppName(), tctx.UserID(), tctx.SessionID(), path); err != nil {
-		log.Printf("[tool] record file write %s: %v", path, err)
-	}
+	supermansession.AddFileWrite(tctx.Actions(), path)
 }
 
-func recordFileRevision(tctx adktool.Context, deps Dependencies, path, action, before, after string, beforeMissing bool) {
-	if deps.FileTracker == nil || tctx == nil {
+func recordFileRevision(tctx adktool.Context, path, action, before, after string, beforeMissing bool) {
+	if tctx == nil {
 		return
 	}
-	if _, err := deps.FileTracker.RecordFileRevision(tctx.AppName(), tctx.UserID(), tctx.SessionID(), path, action, before, after, beforeMissing); err != nil {
-		log.Printf("[tool] record file revision %s: %v", path, err)
-	}
+	supermansession.AddFileRevision(tctx.Actions(), supermansession.FileRevisionNote{
+		Path:          path,
+		Action:        action,
+		Before:        before,
+		After:         after,
+		BeforeMissing: beforeMissing,
+	})
 }

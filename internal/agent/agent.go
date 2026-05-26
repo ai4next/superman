@@ -14,6 +14,7 @@ import (
 	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/model"
 	"google.golang.org/adk/plugin"
+	adksession "google.golang.org/adk/session"
 	adktool "google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/mcptoolset"
 	"google.golang.org/adk/tool/skilltoolset"
@@ -23,7 +24,6 @@ import (
 	"github.com/ai4next/superman/internal/expert"
 	"github.com/ai4next/superman/internal/hook"
 	"github.com/ai4next/superman/internal/memory"
-	supermansession "github.com/ai4next/superman/internal/session"
 	"github.com/ai4next/superman/internal/tool"
 )
 
@@ -34,10 +34,9 @@ var systemPrompt string
 // this same builder so their runtime wiring stays consistent.
 type BuildConfig struct {
 	Name              string
-	Description       string
 	Instruction       string
 	MemoryService     *memory.Service
-	SessionService    *supermansession.Service
+	SessionService    adksession.Service
 	ContextMessages   int
 	SOPContent        string
 	ExpertRegistry    *expert.Registry
@@ -106,7 +105,6 @@ func NewFromConfig(llm model.LLM, cfg *config.Config, build BuildConfig) (adkage
 
 	deps := tool.Dependencies{
 		Config:         cfg,
-		FileTracker:    build.SessionService,
 		ExpertManager:  expertRegistry,
 		DelegateRunner: delegateRunner,
 		ExpertTools:    build.EnableExpertTools,
@@ -115,6 +113,11 @@ func NewFromConfig(llm model.LLM, cfg *config.Config, build BuildConfig) (adkage
 	toolList := tool.RegisterAll(deps)
 
 	var extraPlugins []*plugin.Plugin
+	builtin, err := NewBuiltin(build)
+	if err != nil {
+		return nil, nil, err
+	}
+	extraPlugins = append(extraPlugins, builtin)
 	signal := build.EvolutionSignal
 	if signal.AgentName == "" {
 		signal.AgentName = build.Name
@@ -128,19 +131,20 @@ func NewFromConfig(llm model.LLM, cfg *config.Config, build BuildConfig) (adkage
 
 	agentToolsets := buildToolsets(context.Background(), cfg)
 
-	a, err := llmagent.New(llmagent.Config{
-		Name:                build.Name,
-		Model:               llm,
-		Description:         build.Description,
-		InstructionProvider: instructionProvider(build),
-		Tools:               toolList,
-		Toolsets:            agentToolsets,
-	})
+	agentConfig := llmagent.Config{
+		Name:     build.Name,
+		Model:    llm,
+	}
+	if len(toolList) > 0 {
+		agentConfig.Tools = toolList
+	}
+	if len(agentToolsets) > 0 {
+		agentConfig.Toolsets = agentToolsets
+	}
+	a, err := llmagent.New(agentConfig)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	log.Printf("[agent] created %s agent with %d tools", build.Name, len(toolList))
 
 	return a, extraPlugins, nil
 }
@@ -172,7 +176,6 @@ func buildSkillToolsets(ctx context.Context, cfg *config.Config) []adktool.Tools
 			continue
 		}
 		toolsets = append(toolsets, skillTS)
-		log.Printf("[agent] skill toolset loaded from %s", skillsDir)
 	}
 	return toolsets
 }
@@ -244,15 +247,13 @@ func firstNonEmpty(values ...string) string {
 
 // New creates a new Superman agent with all registered tools, optional SOP rules,
 // L0 index injected into the system prompt, and completed-run signal receivers.
-func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, sessionSvc *supermansession.Service, sopContent string, expertRegistry *expert.Registry, delegateRunner tool.DelegateRunner, evolutionCh chan<- hook.EvolutionSignal) (adkagent.Agent, []*plugin.Plugin, error) {
+func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, sessionSvc adksession.Service, expertRegistry *expert.Registry, delegateRunner tool.DelegateRunner, evolutionCh chan<- hook.EvolutionSignal) (adkagent.Agent, []*plugin.Plugin, error) {
 	return NewFromConfig(llm, cfg, BuildConfig{
 		Name:              "superman",
-		Description:       "Superman - general-purpose autonomous AI assistant",
 		Instruction:       systemPrompt,
 		MemoryService:     memSvc,
 		SessionService:    sessionSvc,
 		ContextMessages:   12,
-		SOPContent:        sopContent,
 		ExpertRegistry:    expertRegistry,
 		DelegateRunner:    delegateRunner,
 		EnableExpertTools: true,
@@ -262,9 +263,4 @@ func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, sessionSvc *
 		},
 		EvolutionCh: evolutionCh,
 	})
-}
-
-// NewWithoutMemory creates an agent without a memory service (for simple CLI usage).
-func NewWithoutMemory(llm model.LLM, cfg *config.Config) (adkagent.Agent, []*plugin.Plugin, error) {
-	return New(llm, cfg, nil, nil, "", nil, nil, nil)
 }

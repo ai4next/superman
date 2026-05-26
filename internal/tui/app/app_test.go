@@ -160,12 +160,13 @@ func TestNewCreatesInitialPersistentSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	extended := svc.(*supermansession.Service)
 
 	m := New(nil, cfg, runner.PluginConfig{}, svc)
 	if m.sessionID == "" {
 		t.Fatal("sessionID should be initialized")
 	}
-	if _, err := svc.Metadata("app", "tui-user", m.sessionID); err != nil {
+	if _, err := extended.Metadata("app", "tui-user", m.sessionID); err != nil {
 		t.Fatalf("initial session should exist: %v", err)
 	}
 }
@@ -209,14 +210,15 @@ func TestFilesCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	extended := svc.(*supermansession.Service)
 	if _, err := svc.Create(t.Context(), &adksession.CreateRequest{AppName: "app", UserID: "tui-user", SessionID: "1"}); err != nil {
 		t.Fatal(err)
 	}
 	path := cfg.Workspace + "/main.go"
-	if err := svc.RecordFileRead("app", "tui-user", "1", path); err != nil {
+	if err := extended.RecordFileRead("app", "tui-user", "1", path); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.RecordFileRevision("app", "tui-user", "1", path, "patch", "old", "new", false); err != nil {
+	if _, err := extended.RecordFileRevision("app", "tui-user", "1", path, "patch", "old", "new", false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1088,8 +1090,9 @@ func newTestQueuedSession(t *testing.T) (*supermansession.Service, *config.Confi
 	if err != nil {
 		t.Fatal(err)
 	}
+	extended := svc.(*supermansession.Service)
 	if _, err := svc.Create(t.Context(), &adksession.CreateRequest{AppName: "app", UserID: "tui-user", SessionID: "1"}); err != nil {
 		t.Fatal(err)
 	}
-	return svc, cfg
+	return extended, cfg
 }

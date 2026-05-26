@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -42,21 +39,6 @@ func RunServe(cmd *cobra.Command, args []string) error {
 		log.Printf("[cli] memory load warning: %v", err)
 	}
 
-	// Load SOP content from l2/ directory
-	var sopContent string
-	l2Dir := global.L2Dir()
-	if files, err := os.ReadDir(l2Dir); err == nil {
-		for _, f := range files {
-			if f.IsDir() || !strings.HasSuffix(f.Name(), ".md") {
-				continue
-			}
-			data, _ := os.ReadFile(filepath.Join(l2Dir, f.Name()))
-			if len(data) > 0 {
-				sopContent += "\n### " + f.Name() + "\n" + string(data) + "\n"
-			}
-		}
-	}
-
 	sessionService, err := supermansession.NewService()
 	if err != nil {
 		return fmt.Errorf("create session service: %w", err)
@@ -86,8 +68,13 @@ func RunServe(cmd *cobra.Command, args []string) error {
 		log.Printf("[expert] loaded %d experts", len(expertRegistry.List()))
 	}
 
-	// Plugins
 	var adkPlugins []*adkplugin.Plugin
+	a, extraPlugins, err := agent.New(llm, cfg, memSvc, sessionService, expertRegistry, delegateRunner, evolutionCh)
+	if err != nil {
+		return fmt.Errorf("create agent: %w", err)
+	}
+	adkPlugins = append(adkPlugins, extraPlugins...)
+
 	for _, pc := range cfg.Plugins {
 		if !pc.Enabled {
 			continue
@@ -101,12 +88,6 @@ func RunServe(cmd *cobra.Command, args []string) error {
 			adkPlugins = append(adkPlugins, p)
 		}
 	}
-
-	a, extraPlugins, err := agent.New(llm, cfg, memSvc, sessionService, sopContent, expertRegistry, delegateRunner, evolutionCh)
-	if err != nil {
-		return fmt.Errorf("create agent: %w", err)
-	}
-	adkPlugins = append(adkPlugins, extraPlugins...)
 
 	log.Printf("[cli] starting TUI with model %s/%s (%d plugins)",
 		cfg.Model.Provider, cfg.Model.Name, len(adkPlugins))

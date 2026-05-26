@@ -368,7 +368,7 @@ func init() {
 	sessionsCmd.AddCommand(sessionsListCmd, sessionsShowCmd, sessionsLastCmd, sessionsSearchCmd, sessionsFilesCmd, sessionsHistoryCmd, sessionsDiffCmd, sessionsRevertCmd, sessionsExportCmd, sessionsImportCmd, sessionsCompactCmd, sessionsDeleteCmd, sessionsRenameCmd, sessionsQueueCmd, sessionsStorageCmd)
 }
 
-func openSessionService() (*supermansession.Service, *config.Config, error) {
+func openSessionService() (adksession.Service, *config.Config, error) {
 	cfg := global.Config()
 	svc, err := supermansession.NewService()
 	if err != nil {
@@ -377,12 +377,16 @@ func openSessionService() (*supermansession.Service, *config.Config, error) {
 	return svc, cfg, nil
 }
 
-func writeSessionList(w io.Writer, svc *supermansession.Service, cfg *config.Config, userID string, asJSON bool) error {
-	sessions := svc.ListMetadata(cfg.Session.AppName, userID)
+func writeJSON(w io.Writer, v any) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
+}
+
+func writeSessionList(w io.Writer, svc adksession.Service, cfg *config.Config, userID string, asJSON bool) error {
+	sessions := supermansession.ListSessionMetadata(svc, cfg.Session.AppName, userID)
 	if asJSON {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(sessions)
+		return writeJSON(w, sessions)
 	}
 	if len(sessions) == 0 {
 		_, err := fmt.Fprintf(w, "No sessions for app=%s user=%s\n", cfg.Session.AppName, userID)
@@ -403,15 +407,13 @@ func writeSessionList(w io.Writer, svc *supermansession.Service, cfg *config.Con
 	return tw.Flush()
 }
 
-func writeSessionShow(w io.Writer, svc *supermansession.Service, cfg *config.Config, userID, sessionID string, asJSON bool) error {
-	messages, err := svc.Messages(cfg.Session.AppName, userID, sessionID)
+func writeSessionShow(w io.Writer, svc adksession.Service, cfg *config.Config, userID, sessionID string, asJSON bool) error {
+	messages, err := supermansession.Messages(svc, cfg.Session.AppName, userID, sessionID)
 	if err != nil {
 		return err
 	}
 	if asJSON {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(messages)
+		return writeJSON(w, messages)
 	}
 	if len(messages) == 0 {
 		_, err := fmt.Fprintln(w, "No messages")
@@ -434,20 +436,20 @@ func writeSessionShow(w io.Writer, svc *supermansession.Service, cfg *config.Con
 	return nil
 }
 
-func writeSessionLast(w io.Writer, svc *supermansession.Service, cfg *config.Config, userID string, asJSON bool) error {
-	sessions := svc.ListMetadata(cfg.Session.AppName, userID)
+func writeSessionLast(w io.Writer, svc adksession.Service, cfg *config.Config, userID string, asJSON bool) error {
+	sessions := supermansession.ListSessionMetadata(svc, cfg.Session.AppName, userID)
 	if len(sessions) == 0 {
 		return fmt.Errorf("no sessions for app=%s user=%s", cfg.Session.AppName, userID)
 	}
 	return writeSessionShow(w, svc, cfg, userID, sessions[0].SessionID, asJSON)
 }
 
-func writeSessionSearch(w io.Writer, svc *supermansession.Service, cfg *config.Config, userID, query, sessionID, role string, limit int, asJSON bool) error {
+func writeSessionSearch(w io.Writer, svc adksession.Service, cfg *config.Config, userID, query, sessionID, role string, limit int, asJSON bool) error {
 	roles, err := parseMessageRoles(role)
 	if err != nil {
 		return err
 	}
-	results, err := svc.SearchMessages(cfg.Session.AppName, userID, supermansession.MessageSearchOptions{
+	results, err := supermansession.SearchMessages(svc, cfg.Session.AppName, userID, supermansession.MessageSearchOptions{
 		Query:     query,
 		SessionID: sessionID,
 		Roles:     roles,
@@ -457,9 +459,7 @@ func writeSessionSearch(w io.Writer, svc *supermansession.Service, cfg *config.C
 		return err
 	}
 	if asJSON {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(results)
+		return writeJSON(w, results)
 	}
 	if len(results) == 0 {
 		_, err := fmt.Fprintln(w, "No matching messages")
@@ -479,15 +479,13 @@ func writeSessionSearch(w io.Writer, svc *supermansession.Service, cfg *config.C
 	return tw.Flush()
 }
 
-func writeSessionFiles(w io.Writer, svc *supermansession.Service, cfg *config.Config, userID, sessionID string, asJSON bool) error {
-	files, err := svc.SessionFiles(cfg.Session.AppName, userID, sessionID)
+func writeSessionFiles(w io.Writer, svc adksession.Service, cfg *config.Config, userID, sessionID string, asJSON bool) error {
+	files, err := supermansession.SessionFiles(svc, cfg.Session.AppName, userID, sessionID)
 	if err != nil {
 		return err
 	}
 	if asJSON {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(files)
+		return writeJSON(w, files)
 	}
 	if len(files) == 0 {
 		_, err := fmt.Fprintln(w, "No files recorded")
@@ -501,15 +499,13 @@ func writeSessionFiles(w io.Writer, svc *supermansession.Service, cfg *config.Co
 	return tw.Flush()
 }
 
-func writeSessionHistory(w io.Writer, svc *supermansession.Service, cfg *config.Config, userID, sessionID string, asJSON bool) error {
-	revisions, err := svc.FileRevisions(cfg.Session.AppName, userID, sessionID)
+func writeSessionHistory(w io.Writer, svc adksession.Service, cfg *config.Config, userID, sessionID string, asJSON bool) error {
+	revisions, err := supermansession.FileRevisions(svc, cfg.Session.AppName, userID, sessionID)
 	if err != nil {
 		return err
 	}
 	if asJSON {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(revisions)
+		return writeJSON(w, revisions)
 	}
 	if len(revisions) == 0 {
 		_, err := fmt.Fprintln(w, "No file history recorded")
@@ -529,7 +525,7 @@ func writeSessionHistory(w io.Writer, svc *supermansession.Service, cfg *config.
 	return tw.Flush()
 }
 
-func writeSessionDiff(w io.Writer, svc *supermansession.Service, cfg *config.Config, userID, sessionID, path string, asJSON bool) error {
+func writeSessionDiff(w io.Writer, svc adksession.Service, cfg *config.Config, userID, sessionID, path string, asJSON bool) error {
 	revision, ok, err := latestSessionFileRevision(svc, cfg, userID, sessionID, path)
 	if err != nil {
 		return err
@@ -537,19 +533,17 @@ func writeSessionDiff(w io.Writer, svc *supermansession.Service, cfg *config.Con
 	if !ok {
 		return fmt.Errorf("no file history found for %s", path)
 	}
-	before, beforeMissing, err := svc.FileSnapshotContent(revision.Before)
+	before, beforeMissing, err := supermansession.FileSnapshotContent(revision.Before)
 	if err != nil {
 		return err
 	}
-	after, afterMissing, err := svc.FileSnapshotContent(revision.After)
+	after, afterMissing, err := supermansession.FileSnapshotContent(revision.After)
 	if err != nil {
 		return err
 	}
 	diff := supermansession.UnifiedDiff(revision.Path, before, after)
 	if asJSON {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(map[string]any{
+		return writeJSON(w, map[string]any{
 			"session_id":     sessionID,
 			"revision":       revision,
 			"before_missing": beforeMissing,
@@ -561,12 +555,12 @@ func writeSessionDiff(w io.Writer, svc *supermansession.Service, cfg *config.Con
 	return err
 }
 
-func latestSessionFileRevision(svc *supermansession.Service, cfg *config.Config, userID, sessionID, path string) (supermansession.FileRevision, bool, error) {
+func latestSessionFileRevision(svc adksession.Service, cfg *config.Config, userID, sessionID, path string) (supermansession.FileRevision, bool, error) {
 	target, err := filepath.Abs(path)
 	if err != nil {
 		return supermansession.FileRevision{}, false, fmt.Errorf("invalid path: %w", err)
 	}
-	revisions, err := svc.FileRevisions(cfg.Session.AppName, userID, sessionID)
+	revisions, err := supermansession.FileRevisions(svc, cfg.Session.AppName, userID, sessionID)
 	if err != nil {
 		return supermansession.FileRevision{}, false, err
 	}
@@ -578,7 +572,7 @@ func latestSessionFileRevision(svc *supermansession.Service, cfg *config.Config,
 	return supermansession.FileRevision{}, false, nil
 }
 
-func writeSessionRevert(w io.Writer, svc *supermansession.Service, cfg *config.Config, userID, sessionID, path string, asJSON bool) error {
+func writeSessionRevert(w io.Writer, svc adksession.Service, cfg *config.Config, userID, sessionID, path string, asJSON bool) error {
 	revision, ok, err := latestSessionFileRevision(svc, cfg, userID, sessionID, path)
 	if err != nil {
 		return err
@@ -591,7 +585,7 @@ func writeSessionRevert(w io.Writer, svc *supermansession.Service, cfg *config.C
 	if err != nil {
 		return err
 	}
-	before, beforeMissing, err := svc.FileSnapshotContent(revision.Before)
+	before, beforeMissing, err := supermansession.FileSnapshotContent(revision.Before)
 	if err != nil {
 		return err
 	}
@@ -601,7 +595,7 @@ func writeSessionRevert(w io.Writer, svc *supermansession.Service, cfg *config.C
 		if err := os.Remove(revision.Path); err != nil && !os.IsNotExist(err) {
 			return err
 		}
-		revertRevision, err = svc.RecordFileRevisionWithMissing(cfg.Session.AppName, userID, sessionID, revision.Path, "revert", current, "", currentMissing, true)
+		revertRevision, err = supermansession.RecordFileRevisionWithMissing(svc, cfg.Session.AppName, userID, sessionID, revision.Path, "revert", current, "", currentMissing, true)
 	} else {
 		if err := os.MkdirAll(filepath.Dir(revision.Path), 0o755); err != nil {
 			return err
@@ -609,16 +603,14 @@ func writeSessionRevert(w io.Writer, svc *supermansession.Service, cfg *config.C
 		if err := os.WriteFile(revision.Path, []byte(before), 0o644); err != nil {
 			return err
 		}
-		revertRevision, err = svc.RecordFileRevisionWithMissing(cfg.Session.AppName, userID, sessionID, revision.Path, "revert", current, before, currentMissing, false)
+		revertRevision, err = supermansession.RecordFileRevisionWithMissing(svc, cfg.Session.AppName, userID, sessionID, revision.Path, "revert", current, before, currentMissing, false)
 	}
 	if err != nil {
 		return err
 	}
 
 	if asJSON {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(map[string]any{
+		return writeJSON(w, map[string]any{
 			"session_id": sessionID,
 			"path":       revision.Path,
 			"reverted":   true,
@@ -650,7 +642,7 @@ type sessionExport struct {
 	References    []supermansession.SessionReference  `json:"references,omitempty"`
 }
 
-func writeSessionExport(w io.Writer, svc *supermansession.Service, cfg *config.Config, userID, sessionID, format string) error {
+func writeSessionExport(w io.Writer, svc adksession.Service, cfg *config.Config, userID, sessionID, format string) error {
 	export, err := buildSessionExport(svc, cfg, userID, sessionID)
 	if err != nil {
 		return err
@@ -659,9 +651,7 @@ func writeSessionExport(w io.Writer, svc *supermansession.Service, cfg *config.C
 	case "", "markdown", "md":
 		return writeSessionExportMarkdown(w, export)
 	case "json":
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(export)
+		return writeJSON(w, export)
 	case "jsonl":
 		return writeSessionExportJSONL(w, export)
 	default:
@@ -669,32 +659,32 @@ func writeSessionExport(w io.Writer, svc *supermansession.Service, cfg *config.C
 	}
 }
 
-func buildSessionExport(svc *supermansession.Service, cfg *config.Config, userID, sessionID string) (sessionExport, error) {
-	meta, err := svc.Metadata(cfg.Session.AppName, userID, sessionID)
+func buildSessionExport(svc adksession.Service, cfg *config.Config, userID, sessionID string) (sessionExport, error) {
+	meta, err := supermansession.SessionMetadata(svc, cfg.Session.AppName, userID, sessionID)
 	if err != nil {
 		return sessionExport{}, err
 	}
-	messages, err := svc.Messages(cfg.Session.AppName, userID, sessionID)
+	messages, err := supermansession.Messages(svc, cfg.Session.AppName, userID, sessionID)
 	if err != nil {
 		return sessionExport{}, err
 	}
-	files, err := svc.SessionFiles(cfg.Session.AppName, userID, sessionID)
+	files, err := supermansession.SessionFiles(svc, cfg.Session.AppName, userID, sessionID)
 	if err != nil {
 		return sessionExport{}, err
 	}
-	revisions, err := svc.FileRevisions(cfg.Session.AppName, userID, sessionID)
+	revisions, err := supermansession.FileRevisions(svc, cfg.Session.AppName, userID, sessionID)
 	if err != nil {
 		return sessionExport{}, err
 	}
-	changes, err := svc.SessionFileChanges(cfg.Session.AppName, userID, sessionID)
+	changes, err := supermansession.SessionFileChanges(svc, cfg.Session.AppName, userID, sessionID)
 	if err != nil {
 		return sessionExport{}, err
 	}
-	queue, err := svc.PromptQueue(cfg.Session.AppName, userID, sessionID)
+	queue, err := supermansession.PromptQueue(svc, cfg.Session.AppName, userID, sessionID)
 	if err != nil {
 		return sessionExport{}, err
 	}
-	references, err := svc.SessionReferences(cfg.Session.AppName, userID, sessionID)
+	references, err := supermansession.SessionReferences(svc, cfg.Session.AppName, userID, sessionID)
 	if err != nil {
 		return sessionExport{}, err
 	}
@@ -823,12 +813,12 @@ func writeSessionExportJSONL(w io.Writer, export sessionExport) error {
 	return nil
 }
 
-func writeSessionImport(w io.Writer, svc *supermansession.Service, cfg *config.Config, userID, path string, overwrite bool, asJSON bool) error {
+func writeSessionImport(w io.Writer, svc adksession.Service, cfg *config.Config, userID, path string, overwrite bool, asJSON bool) error {
 	export, err := readSessionImport(path)
 	if err != nil {
 		return err
 	}
-	meta, err := svc.Import(cfg.Session.AppName, userID, supermansession.ImportData{
+	meta, err := supermansession.Import(svc, cfg.Session.AppName, userID, supermansession.ImportData{
 		Metadata:      export.Metadata,
 		Messages:      export.Messages,
 		Files:         export.Files,
@@ -841,9 +831,7 @@ func writeSessionImport(w io.Writer, svc *supermansession.Service, cfg *config.C
 		return err
 	}
 	if asJSON {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(meta)
+		return writeJSON(w, meta)
 	}
 	_, err = fmt.Fprintf(w, "Imported session %s (%d messages, %d files)\n", meta.SessionID, meta.MessageCount, meta.FileCount)
 	return err
@@ -947,8 +935,8 @@ func compactOptions(cfg *config.Config) supermansession.CompactOptions {
 	return opts
 }
 
-func writeSessionCompact(w io.Writer, svc *supermansession.Service, cfg *config.Config, userID, sessionID string, opts supermansession.CompactOptions, asJSON bool) error {
-	result, err := svc.Compact(cfg.Session.AppName, userID, sessionID, opts)
+func writeSessionCompact(w io.Writer, svc adksession.Service, cfg *config.Config, userID, sessionID string, opts supermansession.CompactOptions, asJSON bool) error {
+	result, err := supermansession.Compact(svc, cfg.Session.AppName, userID, sessionID, opts)
 	if err != nil {
 		return err
 	}
@@ -962,9 +950,7 @@ func writeSessionCompact(w io.Writer, svc *supermansession.Service, cfg *config.
 		output["summary_message_id"] = result.Summary.ID
 	}
 	if asJSON {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(output)
+		return writeJSON(w, output)
 	}
 	if result.Compacted {
 		_, err = fmt.Fprintf(w, "Compacted session %s: scanned=%d kept=%d summary=%s\n", sessionID, result.Scanned, result.Kept, result.Summary.ID)
@@ -974,7 +960,7 @@ func writeSessionCompact(w io.Writer, svc *supermansession.Service, cfg *config.
 	return err
 }
 
-func writeSessionDelete(w io.Writer, svc *supermansession.Service, cfg *config.Config, userID, sessionID string, asJSON bool) error {
+func writeSessionDelete(w io.Writer, svc adksession.Service, cfg *config.Config, userID, sessionID string, asJSON bool) error {
 	if err := svc.Delete(context.Background(), &adksession.DeleteRequest{
 		AppName:   cfg.Session.AppName,
 		UserID:    userID,
@@ -983,9 +969,7 @@ func writeSessionDelete(w io.Writer, svc *supermansession.Service, cfg *config.C
 		return err
 	}
 	if asJSON {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(map[string]any{
+		return writeJSON(w, map[string]any{
 			"session_id": sessionID,
 			"deleted":    true,
 		})
@@ -994,32 +978,28 @@ func writeSessionDelete(w io.Writer, svc *supermansession.Service, cfg *config.C
 	return err
 }
 
-func writeSessionRename(w io.Writer, svc *supermansession.Service, cfg *config.Config, userID, sessionID, title string, asJSON bool) error {
-	if err := svc.Rename(cfg.Session.AppName, userID, sessionID, title); err != nil {
+func writeSessionRename(w io.Writer, svc adksession.Service, cfg *config.Config, userID, sessionID, title string, asJSON bool) error {
+	if err := supermansession.Rename(svc, cfg.Session.AppName, userID, sessionID, title); err != nil {
 		return err
 	}
-	meta, err := svc.Metadata(cfg.Session.AppName, userID, sessionID)
+	meta, err := supermansession.SessionMetadata(svc, cfg.Session.AppName, userID, sessionID)
 	if err != nil {
 		return err
 	}
 	if asJSON {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(meta)
+		return writeJSON(w, meta)
 	}
 	_, err = fmt.Fprintf(w, "Renamed session %s to %q\n", sessionID, meta.Title)
 	return err
 }
 
-func writeSessionQueue(w io.Writer, svc *supermansession.Service, cfg *config.Config, userID, sessionID string, asJSON bool) error {
-	queue, err := svc.PromptQueue(cfg.Session.AppName, userID, sessionID)
+func writeSessionQueue(w io.Writer, svc adksession.Service, cfg *config.Config, userID, sessionID string, asJSON bool) error {
+	queue, err := supermansession.PromptQueue(svc, cfg.Session.AppName, userID, sessionID)
 	if err != nil {
 		return err
 	}
 	if asJSON {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(queue)
+		return writeJSON(w, queue)
 	}
 	if len(queue) == 0 {
 		_, err := fmt.Fprintln(w, "Prompt queue is empty")
@@ -1031,12 +1011,12 @@ func writeSessionQueue(w io.Writer, svc *supermansession.Service, cfg *config.Co
 	return nil
 }
 
-func resolveSessionID(svc *supermansession.Service, cfg *config.Config, userID, id string) (string, error) {
+func resolveSessionID(svc adksession.Service, cfg *config.Config, userID, id string) (string, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return "", fmt.Errorf("session id is required")
 	}
-	sessions := svc.ListMetadata(cfg.Session.AppName, userID)
+	sessions := supermansession.ListSessionMetadata(svc, cfg.Session.AppName, userID)
 	var matches []string
 	for _, meta := range sessions {
 		if meta.SessionID == id || strings.HasPrefix(meta.SessionID, id) {
@@ -1053,29 +1033,25 @@ func resolveSessionID(svc *supermansession.Service, cfg *config.Config, userID, 
 	}
 }
 
-func writeSessionQueueAdd(w io.Writer, svc *supermansession.Service, cfg *config.Config, userID, sessionID, prompt string, asJSON bool) error {
-	queued, err := svc.EnqueuePrompt(cfg.Session.AppName, userID, sessionID, prompt)
+func writeSessionQueueAdd(w io.Writer, svc adksession.Service, cfg *config.Config, userID, sessionID, prompt string, asJSON bool) error {
+	queued, err := supermansession.EnqueuePrompt(svc, cfg.Session.AppName, userID, sessionID, prompt)
 	if err != nil {
 		return err
 	}
 	if asJSON {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(queued)
+		return writeJSON(w, queued)
 	}
 	_, err = fmt.Fprintf(w, "Queued prompt %s for session %s\n", queued.ID, sessionID)
 	return err
 }
 
-func writeSessionQueueClear(w io.Writer, svc *supermansession.Service, cfg *config.Config, userID, sessionID string, asJSON bool) error {
-	cleared, err := svc.ClearPromptQueue(cfg.Session.AppName, userID, sessionID)
+func writeSessionQueueClear(w io.Writer, svc adksession.Service, cfg *config.Config, userID, sessionID string, asJSON bool) error {
+	cleared, err := supermansession.ClearPromptQueue(svc, cfg.Session.AppName, userID, sessionID)
 	if err != nil {
 		return err
 	}
 	if asJSON {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(map[string]any{
+		return writeJSON(w, map[string]any{
 			"session_id": sessionID,
 			"cleared":    cleared,
 		})
@@ -1084,15 +1060,13 @@ func writeSessionQueueClear(w io.Writer, svc *supermansession.Service, cfg *conf
 	return err
 }
 
-func writeSessionStorage(w io.Writer, svc *supermansession.Service, _ *config.Config, asJSON bool) error {
-	stats, err := svc.StorageStats()
+func writeSessionStorage(w io.Writer, svc adksession.Service, _ *config.Config, asJSON bool) error {
+	stats, err := supermansession.StorageStatsFor(svc)
 	if err != nil {
 		return err
 	}
 	if asJSON {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(stats)
+		return writeJSON(w, stats)
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "KIND\tCOUNT\tBYTES")
@@ -1108,15 +1082,13 @@ func writeSessionStorage(w io.Writer, svc *supermansession.Service, _ *config.Co
 	return tw.Flush()
 }
 
-func writeSessionStorageGC(w io.Writer, svc *supermansession.Service, _ *config.Config, dryRun bool, asJSON bool) error {
-	result, err := svc.CleanupOrphanSnapshots(dryRun)
+func writeSessionStorageGC(w io.Writer, svc adksession.Service, _ *config.Config, dryRun bool, asJSON bool) error {
+	result, err := supermansession.CleanupOrphanSnapshots(svc, dryRun)
 	if err != nil {
 		return err
 	}
 	if asJSON {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(result)
+		return writeJSON(w, result)
 	}
 	if dryRun {
 		_, err = fmt.Fprintf(w, "Dry run: found %d orphan snapshot(s), %d bytes reclaimable\n", result.Removed, result.RemovedBytes)

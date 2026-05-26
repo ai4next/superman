@@ -216,11 +216,7 @@ func (m *Model) historyNext() bool {
 	return true
 }
 func (m *Model) refreshPromptHistory() {
-	svc, ok := m.sessionService.(*supermansession.Service)
-	if !ok {
-		return
-	}
-	history, err := svc.PromptHistory(m.cfg.Session.AppName, "tui-user", m.sessionID, 100)
+	history, err := supermansession.PromptHistory(m.sessionService, m.cfg.Session.AppName, "tui-user", m.sessionID, 100)
 	if err != nil {
 		m.promptHistory = nil
 		m.historyIndex = -1

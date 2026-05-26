@@ -38,17 +38,18 @@ func TestRecordPromptReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	extended := svc.(*supermansession.Service)
 	if _, err := svc.Create(t.Context(), &adksession.CreateRequest{AppName: "app", UserID: "user", SessionID: "1"}); err != nil {
 		t.Fatal(err)
 	}
 	mainPath := filepath.Join(dir, "main.go")
 	designPath := filepath.Join(dir, "docs/design doc.md")
 
-	counts := supermansession.RecordPromptReferences(svc, "app", "user", "1", dir, `review @main.go and @"docs/design doc.md" from [session:past role:user] cache decision`)
+	counts := supermansession.RecordPromptReferences(extended, "app", "user", "1", dir, `review @main.go and @"docs/design doc.md" from [session:past role:user] cache decision`)
 	if counts.Files != 2 || counts.Sessions != 1 {
 		t.Fatalf("counts = %#v", counts)
 	}
-	files, err := svc.SessionFiles("app", "user", "1")
+	files, err := extended.SessionFiles("app", "user", "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +60,7 @@ func TestRecordPromptReferences(t *testing.T) {
 	if byPath[mainPath].ReadCount != 1 || byPath[designPath].ReadCount != 1 {
 		t.Fatalf("files = %#v", files)
 	}
-	refs, err := svc.SessionReferences("app", "user", "1")
+	refs, err := extended.SessionReferences("app", "user", "1")
 	if err != nil {
 		t.Fatal(err)
 	}

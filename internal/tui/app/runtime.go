@@ -14,7 +14,6 @@ import (
 	"google.golang.org/genai"
 
 	supermanruntime "github.com/ai4next/superman/internal/runtime"
-	supermansession "github.com/ai4next/superman/internal/session"
 	"github.com/ai4next/superman/internal/tui/components"
 )
 
@@ -283,16 +282,7 @@ func (m *Model) prepareNextQueuedPrompt() (string, bool) {
 	return prompt, true
 }
 func (m *Model) compactor() supermanruntime.Compactor {
-	if svc, ok := m.sessionService.(*supermansession.Service); ok {
-		return supermansession.RuntimeCompactor{
-			Service: svc,
-			Options: supermansession.CompactOptions{
-				MaxMessages: m.cfg.Session.MaxTurns,
-				KeepLast:    20,
-			},
-		}
-	}
-	return nil
+	return supermanruntime.SessionCompactor(m.sessionService, m.cfg.Session.MaxTurns)
 }
 func startAgent(ctx context.Context, run *runner.Runner, broker *supermanruntime.Broker, appName, sessionID, prompt string, compactor supermanruntime.Compactor) tea.Cmd {
 	return func() tea.Msg {
@@ -320,12 +310,13 @@ func pulseTick() tea.Cmd {
 func runAgent(ctx context.Context, run *runner.Runner, broker *supermanruntime.Broker, appName, sessionID, prompt string, compactor supermanruntime.Compactor) {
 	msg := genai.NewContentFromText(prompt, genai.RoleUser)
 	for _, evtErr := range supermanruntime.StreamRun(ctx, run, supermanruntime.RunRequest{
-		AppName:   appName,
-		UserID:    "tui-user",
-		SessionID: sessionID,
-		Message:   msg,
-		Config:    agent.RunConfig{},
-		Compact:   compactor,
+		AppName:    appName,
+		UserID:     "tui-user",
+		SessionID:  sessionID,
+		Message:    msg,
+		StateDelta: supermanruntime.PromptStateDelta("", prompt),
+		Config:     agent.RunConfig{},
+		Compact:    compactor,
 		LoopDetection: supermanruntime.LoopDetectionConfig{
 			Enabled:    true,
 			WindowSize: supermanruntime.DefaultLoopWindowSize,

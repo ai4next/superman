@@ -38,28 +38,26 @@ func New(a agent.Agent, cfg *config.Config, pluginCfg runner.PluginConfig, sessS
 		historyIndex:   -1,
 	}
 	m.textarea = newTextarea()
-	if persisted, ok := sessSvc.(*supermansession.Service); ok {
-		m.ensureCurrentSession(persisted)
-		m.loadPersistedMessages(persisted)
-		m.refreshSessionTitle()
-		m.refreshSessionFiles()
-		m.refreshPromptQueue()
-		m.refreshPromptHistory()
-	}
+	m.ensureCurrentSession()
+	m.loadPersistedMessages()
+	m.refreshSessionTitle()
+	m.refreshSessionFiles()
+	m.refreshPromptQueue()
+	m.refreshPromptHistory()
 	return m
 }
 
-func (m *Model) ensureCurrentSession(svc *supermansession.Service) {
-	if _, err := svc.Metadata(m.cfg.Session.AppName, "tui-user", m.sessionID); err == nil {
+func (m *Model) ensureCurrentSession() {
+	if _, err := supermansession.SessionMetadata(m.sessionService, m.cfg.Session.AppName, "tui-user", m.sessionID); err == nil {
 		return
 	}
-	sessions := svc.ListMetadata(m.cfg.Session.AppName, "tui-user")
+	sessions := supermansession.ListSessionMetadata(m.sessionService, m.cfg.Session.AppName, "tui-user")
 	if len(sessions) > 0 {
 		m.sessionID = sessions[0].SessionID
 		m.sessionTitle = sessions[0].Title
 		return
 	}
-	created, err := svc.Create(context.Background(), &session.CreateRequest{
+	created, err := m.sessionService.Create(context.Background(), &session.CreateRequest{
 		AppName: m.cfg.Session.AppName,
 		UserID:  "tui-user",
 	})
@@ -70,9 +68,9 @@ func (m *Model) ensureCurrentSession(svc *supermansession.Service) {
 	m.sessionTitle = "Session " + m.sessionID
 }
 
-func (m *Model) loadPersistedMessages(svc *supermansession.Service) {
+func (m *Model) loadPersistedMessages() {
 	m.messages = nil
-	msgs, err := svc.Messages(m.cfg.Session.AppName, "tui-user", m.sessionID)
+	msgs, err := supermansession.Messages(m.sessionService, m.cfg.Session.AppName, "tui-user", m.sessionID)
 	if err != nil {
 		return
 	}

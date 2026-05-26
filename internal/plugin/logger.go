@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strings"
 	"time"
 
 	"google.golang.org/adk/agent"
@@ -40,8 +41,16 @@ func CreateLoggerPlugin() (*adkplugin.Plugin, error) {
 			)
 		},
 		BeforeModelCallback: func(ctx agent.CallbackContext, req *model.LLMRequest) (*model.LLMResponse, error) {
+			sb := strings.Builder{}
+			sb.WriteString("\n")
+			for _, c := range req.Contents {
+				for _, p := range c.Parts {
+					sb.WriteString(p.Text)
+				}
+				sb.WriteString("\n")
+			}
 			log.Printf(
-				"[logger] before_model invocation=%s session=%s agent=%s model=%s contents=%d text_chars=%d function_calls=%d function_responses=%d inline_parts=%d tools=%d config={temperature=%s top_p=%s max_output_tokens=%d system_chars=%d}",
+				"[logger] before_model invocation=%s session=%s agent=%s model=%s contents=%d text_chars=%d function_calls=%d function_responses=%d inline_parts=%d tools=%d config={temperature=%s top_p=%s max_output_tokens=%d system_chars=%d}, contents=%v",
 				ctx.InvocationID(),
 				ctx.SessionID(),
 				ctx.AgentName(),
@@ -56,6 +65,7 @@ func CreateLoggerPlugin() (*adkplugin.Plugin, error) {
 				formatFloat32Ptr(modelTopP(req)),
 				modelMaxOutputTokens(req),
 				systemInstructionTextLen(req),
+				sb.String(),
 			)
 			return nil, nil
 		},

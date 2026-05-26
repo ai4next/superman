@@ -1,121 +1,141 @@
 package agent
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/ai4next/superman/internal/config"
-	"github.com/ai4next/superman/internal/global"
-	"github.com/ai4next/superman/internal/session"
-	adksession "google.golang.org/adk/session"
-	"google.golang.org/genai"
+	supermansession "github.com/ai4next/superman/internal/session"
 )
 
-type readonlyCtx struct {
-	appName   string
-	userID    string
-	sessionID string
-}
-
-func (c readonlyCtx) Deadline() (deadline time.Time, ok bool) { return time.Time{}, false }
-func (c readonlyCtx) Done() <-chan struct{}                   { return nil }
-func (c readonlyCtx) Err() error                              { return nil }
-func (c readonlyCtx) Value(key any) any                       { return nil }
-func (c readonlyCtx) UserContent() *genai.Content             { return nil }
-func (c readonlyCtx) InvocationID() string                    { return "inv" }
-func (c readonlyCtx) AgentName() string                       { return "superman" }
-func (c readonlyCtx) ReadonlyState() adksession.ReadonlyState { return nil }
-func (c readonlyCtx) UserID() string                          { return c.userID }
-func (c readonlyCtx) AppName() string                         { return c.appName }
-func (c readonlyCtx) SessionID() string                       { return c.sessionID }
-func (c readonlyCtx) Branch() string                          { return "" }
-
-func TestInstructionProviderInjectsSessionContext(t *testing.T) {
-	setTestWorkspace(t)
-	svc, err := session.NewService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	created, err := svc.Create(t.Context(), &adksession.CreateRequest{AppName: "app", UserID: "user", SessionID: "1"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ev := adksession.NewEvent("inv")
-	ev.Author = "user"
-	ev.Content = genai.NewContentFromText("remember this important detail", genai.RoleUser)
-	if err := svc.AppendEvent(t.Context(), created.Session, ev); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.SetSummary("app", "user", "1", "prior concise summary"); err != nil {
-		t.Fatal(err)
-	}
-	file := filepath.Join(t.TempDir(), "main.go")
-	if err := svc.RecordFileRead("app", "user", "1", file); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.RecordFileWrite("app", "user", "1", file); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.RecordSessionReference("app", "user", "1", session.SessionReference{
-		SessionID: "past-session",
-		Role:      session.MessageUser,
-		Preview:   "historical cache decision",
-	}); err != nil {
-		t.Fatal(err)
-	}
+func TestInstructionProviderDoesNotIncludeSessionContext(t *testing.T) {
 	provider := instructionProvider(BuildConfig{
-		Instruction:     "base",
-		SessionService:  svc,
-		ContextMessages: 4,
+		Instruction:     "base instruction",
+		ContextMessages: 12,
 	})
-	got, err := provider(readonlyCtx{appName: "app", userID: "user", sessionID: "1"})
+
+	got, err := provider(nil, nil)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("instructionProvider returned error: %v", err)
 	}
-	if !strings.Contains(got, "prior concise summary") {
-		t.Fatalf("missing summary in instruction:\n%s", got)
+	if !strings.Contains(got, "base instruction") {
+		t.Fatalf("instruction missing base text: %q", got)
 	}
-	if !strings.Contains(got, "## Session Context Usage") || !strings.Contains(got, "Working files are path/status pointers only") || !strings.Contains(got, "Session references are user-selected historical pointers") {
-		t.Fatalf("missing context usage guidance in instruction:\n%s", got)
-	}
-	if !strings.Contains(got, "remember this important detail") {
-		t.Fatalf("missing recent context in instruction:\n%s", got)
-	}
-	if !strings.Contains(got, "## Session Working Files") || !strings.Contains(got, file) || !strings.Contains(got, "modified") {
-		t.Fatalf("missing working files in instruction:\n%s", got)
-	}
-	if !strings.Contains(got, "## Session References") || !strings.Contains(got, "past-session [user]") || !strings.Contains(got, "historical cache decision") {
-		t.Fatalf("missing session references in instruction:\n%s", got)
+	if strings.Contains(got, "Session Context") {
+		t.Fatalf("instruction contains session context: %q", got)
 	}
 }
 
-func TestInstructionProviderSkipsSessionUsageWhenContextEmpty(t *testing.T) {
-	setTestWorkspace(t)
-	svc, err := session.NewService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.Create(t.Context(), &adksession.CreateRequest{AppName: "app", UserID: "user", SessionID: "empty"}); err != nil {
-		t.Fatal(err)
-	}
-	provider := instructionProvider(BuildConfig{
-		Instruction:     "base",
-		SessionService:  svc,
-		ContextMessages: 4,
+func TestSessionContextContentsIncludesHistoricalContext(t *testing.T) {
+	contents := sessionContextContents(sessionContext{
+		Summary:     "earlier decisions",
+		MaxMessages: 12,
+		Messages: []supermansession.Message{
+			{Role: supermansession.MessageUser, Content: "old user request"},
+			{Role: supermansession.MessageAssistant, Content: "old assistant answer"},
+			{Role: supermansession.MessageUser, Content: "current request"},
+		},
 	})
-	got, err := provider(readonlyCtx{appName: "app", userID: "user", sessionID: "empty"})
-	if err != nil {
-		t.Fatal(err)
+
+	if len(contents) != 1 {
+		t.Fatalf("len(contents) = %d, want 1", len(contents))
 	}
-	if strings.Contains(got, "## Session Context Usage") {
-		t.Fatalf("empty context should not inject usage guidance:\n%s", got)
+	got := contents[0].Parts[0].Text
+	for _, want := range []string{"Session Context Usage", "Session Summary", "earlier decisions", "old user request", "old assistant answer"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("contents missing %q: %q", want, got)
+		}
+	}
+	if strings.Contains(got, "current request") {
+		t.Fatalf("contents should not duplicate current request: %q", got)
 	}
 }
 
-func setTestWorkspace(t *testing.T) {
-	t.Helper()
-	global.SetConfig(&config.Config{Workspace: t.TempDir()})
-	t.Cleanup(func() { global.SetConfig(nil) })
+func TestSessionContextContentsSnipsMiddleMessages(t *testing.T) {
+	var messages []supermansession.Message
+	for i := range 8 {
+		messages = append(messages, supermansession.Message{
+			Role:    supermansession.MessageUser,
+			Content: "message " + string(rune('0'+i)),
+		})
+	}
+
+	contents := sessionContextContents(sessionContext{Messages: messages, MaxMessages: 5})
+	got := contents[0].Parts[0].Text
+
+	for _, want := range []string{"message 0", "message 1", "message 2", "[snipped 3 older session messages]", "message 6"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("contents missing %q: %q", want, got)
+		}
+	}
+	if strings.Contains(got, "message 3") || strings.Contains(got, "message 4") || strings.Contains(got, "message 5") {
+		t.Fatalf("contents retained snipped middle messages: %q", got)
+	}
+	if strings.Contains(got, "message 7") {
+		t.Fatalf("contents should not duplicate current request: %q", got)
+	}
+}
+
+func TestSessionContextContentsMicroCompactsOldToolResults(t *testing.T) {
+	long := strings.Repeat("x", contextMicroCompactRunes+1)
+	window := sessionContext{MaxMessages: 12}
+	for i := range 5 {
+		window.Messages = append(window.Messages, supermansession.Message{
+			Role:     supermansession.MessageTool,
+			ToolName: "read",
+			Result:   long + string(rune('0'+i)),
+		})
+	}
+	window.Messages = append(window.Messages, supermansession.Message{Role: supermansession.MessageUser, Content: "current"})
+
+	contents := sessionContextContents(window)
+	got := contents[0].Parts[0].Text
+
+	if count := strings.Count(got, "Earlier tool result compacted"); count != 2 {
+		t.Fatalf("compacted old tool result count = %d, want 2: %q", count, got)
+	}
+	if !strings.Contains(got, strings.Repeat("x", 20)) {
+		t.Fatalf("recent tool results were all compacted: %q", got)
+	}
+}
+
+func TestCompactSessionContextAppliesToolResultBudget(t *testing.T) {
+	large := strings.Repeat("z", contextPersistThresholdRunes+1)
+	window := sessionContext{MaxMessages: 12}
+	for i := range 7 {
+		window.Messages = append(window.Messages, supermansession.Message{
+			ID:     string(rune('a' + i)),
+			Role:   supermansession.MessageTool,
+			Result: large,
+		})
+	}
+
+	compacted := compactSessionContext(window)
+
+	combined := compacted.Summary
+	for _, msg := range compacted.Messages {
+		combined += msg.Result
+	}
+	if !strings.Contains(combined, "<persisted-output>") {
+		t.Fatalf("large result was not budget-compacted: %q", combined)
+	}
+}
+
+func TestCompactSessionContextAutoCompactsOversizedWindow(t *testing.T) {
+	window := sessionContext{
+		MaxMessages: 12,
+		Messages: []supermansession.Message{
+			{Role: supermansession.MessageUser, Content: strings.Repeat("a", contextAutoCompactLimitRunes+1)},
+			{Role: supermansession.MessageAssistant, Content: "recent answer"},
+			{Role: supermansession.MessageUser, Content: "current request"},
+		},
+	}
+
+	compacted := compactSessionContext(window)
+
+	if !strings.Contains(compacted.Summary, "Auto-compacted session context") {
+		t.Fatalf("missing auto compact summary: %q", compacted.Summary)
+	}
+	if len(compacted.Messages) != 3 {
+		t.Fatalf("len(compacted.Messages) = %d, want 3", len(compacted.Messages))
+	}
 }

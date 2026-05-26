@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"google.golang.org/adk/session"
 
@@ -15,15 +14,11 @@ import (
 )
 
 func (m *Model) formatFileRevisionDiff(rev supermansession.FileRevision) (string, error) {
-	svc, ok := m.sessionService.(*supermansession.Service)
-	if !ok {
-		return formatFileRevisionDiff(rev), nil
-	}
-	before, beforeMissing, err := svc.FileSnapshotContent(rev.Before)
+	before, beforeMissing, err := supermansession.FileSnapshotContent(rev.Before)
 	if err != nil {
 		return "", err
 	}
-	after, afterMissing, err := svc.FileSnapshotContent(rev.After)
+	after, afterMissing, err := supermansession.FileSnapshotContent(rev.After)
 	if err != nil {
 		return "", err
 	}
@@ -45,11 +40,7 @@ func (m *Model) formatFileRevisionDiff(rev supermansession.FileRevision) (string
 	return b.String(), nil
 }
 func (m *Model) promptQueue() ([]supermansession.QueuedPrompt, error) {
-	svc, ok := m.sessionService.(*supermansession.Service)
-	if !ok {
-		return nil, nil
-	}
-	queue, err := svc.PromptQueue(m.cfg.Session.AppName, "tui-user", m.sessionID)
+	queue, err := supermansession.PromptQueue(m.sessionService, m.cfg.Session.AppName, "tui-user", m.sessionID)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			m.queueCount = 0
@@ -61,11 +52,7 @@ func (m *Model) promptQueue() ([]supermansession.QueuedPrompt, error) {
 	return queue, nil
 }
 func (m *Model) fileRevisions() ([]supermansession.FileRevision, error) {
-	svc, ok := m.sessionService.(*supermansession.Service)
-	if !ok {
-		return nil, fmt.Errorf("file history is not available for this session service")
-	}
-	revisions, err := svc.FileRevisions(m.cfg.Session.AppName, "tui-user", m.sessionID)
+	revisions, err := supermansession.FileRevisions(m.sessionService, m.cfg.Session.AppName, "tui-user", m.sessionID)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			return nil, nil
@@ -75,11 +62,7 @@ func (m *Model) fileRevisions() ([]supermansession.FileRevision, error) {
 	return revisions, nil
 }
 func (m *Model) searchMessages(query string) ([]supermansession.MessageSearchResult, error) {
-	svc, ok := m.sessionService.(*supermansession.Service)
-	if !ok {
-		return nil, fmt.Errorf("session search is not available for this session service")
-	}
-	return svc.SearchMessages(m.cfg.Session.AppName, "tui-user", supermansession.MessageSearchOptions{
+	return supermansession.SearchMessages(m.sessionService, m.cfg.Session.AppName, "tui-user", supermansession.MessageSearchOptions{
 		Query: query,
 		Limit: 50,
 	})
@@ -104,10 +87,6 @@ func (m *Model) latestFileRevision(path string) (supermansession.FileRevision, b
 	return supermansession.FileRevision{}, false, nil
 }
 func (m *Model) revertFile(path string) error {
-	svc, ok := m.sessionService.(*supermansession.Service)
-	if !ok {
-		return fmt.Errorf("file history is not available for this session service")
-	}
 	revision, ok, err := m.latestFileRevision(path)
 	if err != nil {
 		return err
@@ -120,7 +99,7 @@ func (m *Model) revertFile(path string) error {
 	if err != nil {
 		return err
 	}
-	before, beforeMissing, err := svc.FileSnapshotContent(revision.Before)
+	before, beforeMissing, err := supermansession.FileSnapshotContent(revision.Before)
 	if err != nil {
 		return err
 	}
@@ -128,7 +107,7 @@ func (m *Model) revertFile(path string) error {
 		if err := os.Remove(revision.Path); err != nil && !os.IsNotExist(err) {
 			return err
 		}
-		if _, err := svc.RecordFileRevisionWithMissing(m.cfg.Session.AppName, "tui-user", m.sessionID, revision.Path, "revert", current, "", currentMissing, true); err != nil {
+		if err := supermansession.RecordFileRevision(m.sessionService, m.cfg.Session.AppName, "tui-user", m.sessionID, supermansession.FileRevisionNote{Path: revision.Path, Action: "revert", Before: current, After: "", BeforeMissing: currentMissing, AfterMissing: true}); err != nil {
 			return err
 		}
 		return nil
@@ -140,19 +119,13 @@ func (m *Model) revertFile(path string) error {
 	if err := os.WriteFile(revision.Path, []byte(before), 0o644); err != nil {
 		return err
 	}
-	if _, err := svc.RecordFileRevisionWithMissing(m.cfg.Session.AppName, "tui-user", m.sessionID, revision.Path, "revert", current, before, currentMissing, false); err != nil {
+	if err := supermansession.RecordFileRevision(m.sessionService, m.cfg.Session.AppName, "tui-user", m.sessionID, supermansession.FileRevisionNote{Path: revision.Path, Action: "revert", Before: current, After: before, BeforeMissing: currentMissing}); err != nil {
 		return err
 	}
 	return nil
 }
 func (m *Model) enqueuePromptStore(prompt string) (supermansession.QueuedPrompt, error) {
-	svc, ok := m.sessionService.(*supermansession.Service)
-	if !ok {
-		queued := supermansession.QueuedPrompt{Content: prompt, CreatedAt: time.Now()}
-		m.queueCount++
-		return queued, nil
-	}
-	queued, err := svc.EnqueuePrompt(m.cfg.Session.AppName, "tui-user", m.sessionID, prompt)
+	queued, err := supermansession.EnqueuePrompt(m.sessionService, m.cfg.Session.AppName, "tui-user", m.sessionID, prompt)
 	if err != nil {
 		return supermansession.QueuedPrompt{}, err
 	}
@@ -160,11 +133,7 @@ func (m *Model) enqueuePromptStore(prompt string) (supermansession.QueuedPrompt,
 	return queued, nil
 }
 func (m *Model) dequeuePromptStore() (supermansession.QueuedPrompt, bool, error) {
-	svc, ok := m.sessionService.(*supermansession.Service)
-	if !ok {
-		return supermansession.QueuedPrompt{}, false, nil
-	}
-	queued, ok, err := svc.DequeuePrompt(m.cfg.Session.AppName, "tui-user", m.sessionID)
+	queued, ok, err := supermansession.DequeuePrompt(m.sessionService, m.cfg.Session.AppName, "tui-user", m.sessionID)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			m.queueCount = 0
@@ -176,13 +145,7 @@ func (m *Model) dequeuePromptStore() (supermansession.QueuedPrompt, bool, error)
 	return queued, ok, nil
 }
 func (m *Model) clearPromptQueue() (int, error) {
-	svc, ok := m.sessionService.(*supermansession.Service)
-	if !ok {
-		cleared := m.queueCount
-		m.queueCount = 0
-		return cleared, nil
-	}
-	cleared, err := svc.ClearPromptQueue(m.cfg.Session.AppName, "tui-user", m.sessionID)
+	cleared, err := supermansession.ClearPromptQueue(m.sessionService, m.cfg.Session.AppName, "tui-user", m.sessionID)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			m.queueCount = 0
@@ -194,18 +157,10 @@ func (m *Model) clearPromptQueue() (int, error) {
 	return cleared, nil
 }
 func (m *Model) sessionMetadata() ([]supermansession.Metadata, error) {
-	svc, ok := m.sessionService.(*supermansession.Service)
-	if !ok {
-		return nil, fmt.Errorf("session metadata is not available for this session service")
-	}
-	return svc.ListMetadata(m.cfg.Session.AppName, "tui-user"), nil
+	return supermansession.ListSessionMetadata(m.sessionService, m.cfg.Session.AppName, "tui-user"), nil
 }
 func (m *Model) newSession() error {
-	svc, ok := m.sessionService.(*supermansession.Service)
-	if !ok {
-		return fmt.Errorf("session creation is not available for this session service")
-	}
-	created, err := svc.Create(context.Background(), &session.CreateRequest{
+	created, err := m.sessionService.Create(context.Background(), &session.CreateRequest{
 		AppName: m.cfg.Session.AppName,
 		UserID:  "tui-user",
 	})
@@ -220,11 +175,7 @@ func (m *Model) switchSession(sessionID string) error {
 	if strings.TrimSpace(sessionID) == "" {
 		return fmt.Errorf("session id is required")
 	}
-	svc, ok := m.sessionService.(*supermansession.Service)
-	if !ok {
-		return fmt.Errorf("session switching is not available for this session service")
-	}
-	if _, err := svc.Metadata(m.cfg.Session.AppName, "tui-user", sessionID); err != nil {
+	if _, err := supermansession.SessionMetadata(m.sessionService, m.cfg.Session.AppName, "tui-user", sessionID); err != nil {
 		return err
 	}
 	m.switchToSession(sessionID, true)
@@ -248,13 +199,11 @@ func (m *Model) switchToSession(sessionID string, announce bool) {
 	m.fileCount = 0
 	m.queueCount = 0
 	m.messages = nil
-	if svc, ok := m.sessionService.(*supermansession.Service); ok {
-		m.loadPersistedMessages(svc)
-		m.refreshSessionTitle()
-		m.refreshSessionFiles()
-		m.refreshPromptQueue()
-		m.refreshPromptHistory()
-	}
+	m.loadPersistedMessages()
+	m.refreshSessionTitle()
+	m.refreshSessionFiles()
+	m.refreshPromptQueue()
+	m.refreshPromptHistory()
 	m.showWelcome = len(m.messages) == 0
 	if announce {
 		m.messages = append(m.messages, components.Message{Role: "system", Content: "Switched session: " + sessionID})
@@ -266,11 +215,7 @@ func (m *Model) renameSession(title string) error {
 	if title == "" {
 		return fmt.Errorf("title is required")
 	}
-	svc, ok := m.sessionService.(*supermansession.Service)
-	if !ok {
-		return fmt.Errorf("session rename is not available for this session service")
-	}
-	return svc.Rename(m.cfg.Session.AppName, "tui-user", m.sessionID, title)
+	return supermansession.Rename(m.sessionService, m.cfg.Session.AppName, "tui-user", m.sessionID, title)
 }
 func formatSessionFiles(files []supermansession.SessionFile, limit int) string {
 	if len(files) == 0 {
@@ -334,17 +279,16 @@ func formatSessionFileChanges(changes []supermansession.FileChangeSummary, files
 	return b.String()
 }
 func (m *Model) refreshSessionFiles() {
-	svc, ok := m.sessionService.(*supermansession.Service)
-	if !ok {
+	if m.sessionService == nil || m.cfg == nil {
 		return
 	}
-	files, err := svc.SessionFiles(m.cfg.Session.AppName, "tui-user", m.sessionID)
+	files, err := supermansession.SessionFiles(m.sessionService, m.cfg.Session.AppName, "tui-user", m.sessionID)
 	if err != nil {
 		m.fileCount = 0
 		return
 	}
 	m.fileCount = len(files)
-	changes, err := svc.SessionFileChanges(m.cfg.Session.AppName, "tui-user", m.sessionID)
+	changes, err := supermansession.SessionFileChanges(m.sessionService, m.cfg.Session.AppName, "tui-user", m.sessionID)
 	if err != nil {
 		m.fileChanges = nil
 		return
@@ -352,11 +296,10 @@ func (m *Model) refreshSessionFiles() {
 	m.fileChanges = changes
 }
 func (m *Model) refreshPromptQueue() {
-	svc, ok := m.sessionService.(*supermansession.Service)
-	if !ok {
+	if m.sessionService == nil || m.cfg == nil {
 		return
 	}
-	queue, err := svc.PromptQueue(m.cfg.Session.AppName, "tui-user", m.sessionID)
+	queue, err := supermansession.PromptQueue(m.sessionService, m.cfg.Session.AppName, "tui-user", m.sessionID)
 	if err != nil {
 		m.queueCount = 0
 		return
@@ -364,14 +307,10 @@ func (m *Model) refreshPromptQueue() {
 	m.queueCount = len(queue)
 }
 func (m *Model) refreshSessionTitle() {
-	svc, ok := m.sessionService.(*supermansession.Service)
-	if !ok {
-		if m.sessionTitle == "" {
-			m.sessionTitle = "Session " + m.sessionID
-		}
+	if m.sessionService == nil || m.cfg == nil {
 		return
 	}
-	meta, err := svc.Metadata(m.cfg.Session.AppName, "tui-user", m.sessionID)
+	meta, err := supermansession.SessionMetadata(m.sessionService, m.cfg.Session.AppName, "tui-user", m.sessionID)
 	if err != nil {
 		m.sessionTitle = "Session " + m.sessionID
 		return

@@ -90,18 +90,16 @@ func (m *Model) insertFileReference(path string) {
 		m.insertText(" ")
 	}
 	m.insertText("@" + path)
-	if svc, ok := m.sessionService.(*supermansession.Service); ok {
-		abs := path
-		if !filepath.IsAbs(abs) {
-			abs = filepath.Join(m.cfg.Workspace, path)
-		}
-		_ = svc.RecordFileRead(m.cfg.Session.AppName, "tui-user", m.sessionID, abs)
+	abs := path
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(m.cfg.Workspace, path)
+	}
+	if err := supermansession.RecordFileRead(m.sessionService, m.cfg.Session.AppName, "tui-user", m.sessionID, abs); err == nil {
 		m.refreshSessionFiles()
 	}
 }
 func (m *Model) recordPromptFileReferences(prompt string) int {
-	svc, ok := m.sessionService.(*supermansession.Service)
-	if !ok || m.cfg == nil {
+	if m.cfg == nil {
 		return 0
 	}
 	count := 0
@@ -110,7 +108,7 @@ func (m *Model) recordPromptFileReferences(prompt string) int {
 		if path == "" {
 			continue
 		}
-		if err := svc.RecordFileRead(m.cfg.Session.AppName, "tui-user", m.sessionID, path); err == nil {
+		if err := supermansession.RecordFileRead(m.sessionService, m.cfg.Session.AppName, "tui-user", m.sessionID, path); err == nil {
 			count++
 		}
 	}
@@ -121,13 +119,12 @@ func (m *Model) recordPromptFileReferences(prompt string) int {
 }
 
 func (m *Model) recordPromptSessionReferences(prompt string) int {
-	svc, ok := m.sessionService.(*supermansession.Service)
-	if !ok || m.cfg == nil {
+	if m.cfg == nil {
 		return 0
 	}
 	count := 0
 	for _, ref := range supermansession.ExtractSessionReferences(prompt) {
-		if err := svc.RecordSessionReference(m.cfg.Session.AppName, "tui-user", m.sessionID, ref); err == nil {
+		if err := supermansession.RecordSessionReference(m.sessionService, m.cfg.Session.AppName, "tui-user", m.sessionID, ref); err == nil {
 			count++
 		}
 	}

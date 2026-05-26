@@ -86,6 +86,6 @@ func writeFile(tctx tool.Context, deps Dependencies, input fileWriteInput) (file
 		Bytes:    n,
 		Mode:     mode,
 	}
-	recordFileRevision(tctx, deps, abs, mode, before, after, beforeMissing)
+	recordFileRevision(tctx, abs, mode, before, after, beforeMissing)
 	return out, nil
 }

@@ -36,7 +36,7 @@ var reflectCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("create session service: %w", err)
 		}
-		a, extraPlugins, err := agent.New(llm, cfg, nil, sessionService, "", nil, nil, nil)
+		a, extraPlugins, err := agent.New(llm, cfg, nil, sessionService, nil, nil, nil)
 		if err != nil {
 			return fmt.Errorf("create agent: %w", err)
 		}

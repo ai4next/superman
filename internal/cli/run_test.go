@@ -157,14 +157,15 @@ func TestEnsureRunSessionAndRecordPromptReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	extended := svc.(*supermansession.Service)
 	req := buildRunRequest(cfg, svc, `review @main.go from [session:past role:user] cache decision`)
 
 	if err := ensureRunSession(context.Background(), svc, &req); err != nil {
 		t.Fatal(err)
 	}
-	supermansession.RecordPromptReferences(svc, req.AppName, req.UserID, req.SessionID, cfg.Workspace, `review @main.go from [session:past role:user] cache decision`)
+	supermansession.RecordPromptReferences(extended, req.AppName, req.UserID, req.SessionID, cfg.Workspace, `review @main.go from [session:past role:user] cache decision`)
 
-	files, err := svc.SessionFiles("app", "operator", req.SessionID)
+	files, err := extended.SessionFiles("app", "operator", req.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +173,7 @@ func TestEnsureRunSessionAndRecordPromptReferences(t *testing.T) {
 	if len(files) != 1 || files[0].Path != wantPath || files[0].ReadCount != 1 {
 		t.Fatalf("files = %#v, want %s read once", files, wantPath)
 	}
-	refs, err := svc.SessionReferences("app", "operator", "1")
+	refs, err := extended.SessionReferences("app", "operator", "1")
 	if err != nil {
 		t.Fatal(err)
 	}

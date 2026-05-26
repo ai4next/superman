@@ -8,6 +8,7 @@ import (
 
 	"google.golang.org/adk/model"
 	"google.golang.org/adk/runner"
+	adksession "google.golang.org/adk/session"
 	"google.golang.org/genai"
 
 	"github.com/ai4next/superman/internal/agent"
@@ -46,7 +47,6 @@ func (ds *delegateService) RunDelegate(ctx context.Context, specName string, tas
 	}
 	a, extraPlugins, err := agent.NewFromConfig(ds.llm, cfg, agent.BuildConfig{
 		Name:              spec.Name,
-		Description:       spec.Name,
 		Instruction:       spec.SystemPrompt + "\n\nReturn only a concise plain-text summary of the delegated task result.",
 		MemoryService:     memSvc,
 		SessionService:    sessionService,
@@ -72,8 +72,6 @@ func (ds *delegateService) RunDelegate(ctx context.Context, specName string, tas
 	if err := ensureRunSession(ctx, sessionService, &req); err != nil {
 		return "", err
 	}
-	supermansession.RecordPromptReferences(sessionService, req.AppName, req.UserID, req.SessionID, cfg.Workspace, task)
-
 	auditLogger := supermanruntime.NewAuditLogger(global.RuntimeEventsPath())
 	var response strings.Builder
 	for event, evtErr := range supermanruntime.StreamRun(ctx, r, req, nil) {
@@ -94,22 +92,17 @@ func (ds *delegateService) RunDelegate(ctx context.Context, specName string, tas
 	return result, nil
 }
 
-func buildDelegateRunRequest(cfg *config.Config, sessionService *supermansession.Service, expertName string, task string) supermanruntime.RunRequest {
+func buildDelegateRunRequest(cfg *config.Config, sessionService adksession.Service, expertName string, task string) supermanruntime.RunRequest {
 	return supermanruntime.RunRequest{
-		AppName: cfg.Session.AppName + "-expert",
-		UserID:  "expert-user",
-		Message: genai.NewContentFromText(task, genai.RoleUser),
+		AppName:    cfg.Session.AppName + "-expert",
+		UserID:     "expert-user",
+		Message:    genai.NewContentFromText(task, genai.RoleUser),
+		StateDelta: supermanruntime.PromptStateDelta(cfg.Workspace, task),
 		LoopDetection: supermanruntime.LoopDetectionConfig{
 			Enabled:    cfg.Session.LoopDetection.Enabled,
 			WindowSize: cfg.Session.LoopDetection.WindowSize,
 			MaxRepeats: cfg.Session.LoopDetection.MaxRepeats,
 		},
-		Compact: supermansession.RuntimeCompactor{
-			Service: sessionService,
-			Options: supermansession.CompactOptions{
-				MaxMessages: cfg.Session.MaxTurns,
-				KeepLast:    20,
-			},
-		},
+		Compact: supermanruntime.SessionCompactor(sessionService, cfg.Session.MaxTurns),
 	}
 }

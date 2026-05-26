@@ -280,12 +280,13 @@ func TestWriteSessionCompact(t *testing.T) {
 	if out := buf.String(); !strings.Contains(out, "Compacted session 1") || !strings.Contains(out, "summary=") {
 		t.Fatalf("compact output = %s", out)
 	}
-	window, err := svc.ContextWindow("app", "cli-user", "1", 2)
+	messages, err := svc.Messages("app", "cli-user", "1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(window.Summary, "Deterministic session summary") {
-		t.Fatalf("summary = %q", window.Summary)
+	summary := messages[len(messages)-1]
+	if !summary.Summary || !strings.Contains(summary.Content, "Deterministic session summary") {
+		t.Fatalf("summary = %#v", summary)
 	}
 }
 
@@ -637,5 +638,6 @@ func newEmptyCLITestSessionService(t *testing.T) (*supermansession.Service, *con
 	if err != nil {
 		t.Fatal(err)
 	}
-	return svc, cfg
+	extended := svc.(*supermansession.Service)
+	return extended, cfg
 }

@@ -90,13 +90,7 @@ func (m *Model) processCommand(input string) (bool, tea.Cmd) {
 	case "/files":
 		m.clearInput()
 		m.showWelcome = false
-		svc, ok := m.sessionService.(*supermansession.Service)
-		if !ok {
-			m.messages = append(m.messages, components.Message{Role: "error", Content: "Session files are not available for this session service"})
-			m.chatCacheDirty = true
-			return true, nil
-		}
-		changes, err := svc.SessionFileChanges(m.cfg.Session.AppName, "tui-user", m.sessionID)
+		changes, err := supermansession.SessionFileChanges(m.sessionService, m.cfg.Session.AppName, "tui-user", m.sessionID)
 		if err != nil {
 			if strings.Contains(err.Error(), "not found") {
 				m.messages = append(m.messages, components.Message{Role: "system", Content: "No files recorded for this session"})
@@ -106,7 +100,7 @@ func (m *Model) processCommand(input string) (bool, tea.Cmd) {
 			m.chatCacheDirty = true
 			return true, nil
 		}
-		files, err := svc.SessionFiles(m.cfg.Session.AppName, "tui-user", m.sessionID)
+		files, err := supermansession.SessionFiles(m.sessionService, m.cfg.Session.AppName, "tui-user", m.sessionID)
 		if err != nil {
 			m.messages = append(m.messages, components.Message{Role: "error", Content: fmt.Sprintf("Load session files failed: %v", err)})
 			m.chatCacheDirty = true

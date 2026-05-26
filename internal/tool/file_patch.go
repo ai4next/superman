@@ -62,6 +62,6 @@ func patchFile(tctx tool.Context, deps Dependencies, input filePatchInput) (file
 		FilePath: abs,
 		Applied:  true,
 	}
-	recordFileRevision(tctx, deps, abs, "patch", content, newContent, false)
+	recordFileRevision(tctx, abs, "patch", content, newContent, false)
 	return out, nil
 }

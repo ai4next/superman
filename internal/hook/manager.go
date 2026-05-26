@@ -7,17 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/model"
 	"google.golang.org/adk/plugin"
-	adksession "google.golang.org/adk/session"
 	"google.golang.org/adk/tool"
 	"google.golang.org/genai"
-
-	"github.com/ai4next/superman/internal/global"
 )
 
 // eventDirs maps hook event names to their subdirectory names.
@@ -235,67 +231,11 @@ func (m *Manager) signalAfterRun(ic agent.InvocationContext) {
 		return
 	}
 
-	if ic.Session() != nil {
-		if err := writeSessionLog(ic.Session()); err != nil {
-			log.Printf("[hook] persist session %s: %v", sid, err)
-		}
-	}
-
 	if m.evolutionCh != nil {
 		signal := m.signal
 		signal.SessionID = sid
 		m.evolutionCh <- signal
 	}
-}
-
-func writeSessionLog(sess adksession.Session) error {
-	if sess == nil {
-		return nil
-	}
-	sessionDir := global.SessionsDir()
-	if err := os.MkdirAll(sessionDir, 0755); err != nil {
-		return fmt.Errorf("create session dir: %w", err)
-	}
-
-	path := global.SessionLogPath(sess.ID())
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		return fmt.Errorf("open %s: %w", path, err)
-	}
-	defer f.Close()
-
-	if sess.Events() == nil {
-		return nil
-	}
-	for event := range sess.Events().All() {
-		prefix := "A"
-		if event.Author == "user" {
-			prefix = "U"
-		}
-		if _, err := fmt.Fprintf(f, "%s: %s\n", prefix, quoteLogValue(eventText(event))); err != nil {
-			return fmt.Errorf("write %s: %w", path, err)
-		}
-	}
-	return nil
-}
-
-func eventText(event *adksession.Event) string {
-	if event == nil || event.Content == nil {
-		return ""
-	}
-	var parts []string
-	for _, part := range event.Content.Parts {
-		if strings.TrimSpace(part.Text) != "" {
-			parts = append(parts, strings.TrimSpace(part.Text))
-		}
-	}
-	return strings.Join(parts, "\n")
-}
-
-func quoteLogValue(value string) string {
-	value = strings.ReplaceAll(value, "\r\n", "\n")
-	value = strings.ReplaceAll(value, "\r", "\n")
-	return strconv.Quote(value)
 }
 
 // beforeModel handles BeforeModel.

@@ -4,7 +4,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
+
+	adksession "google.golang.org/adk/session"
 )
 
 type PromptReferenceCounts struct {
@@ -110,23 +113,40 @@ func ResolveWorkspacePath(workspace, ref string) string {
 }
 
 func RecordPromptReferences(svc *Service, appName, userID, sessionID, workspace, prompt string) PromptReferenceCounts {
-	if svc == nil {
+	actions := adksession.EventActions{StateDelta: make(map[string]any)}
+	counts := AddPromptReferences(&actions, workspace, prompt)
+	if svc == nil || counts == (PromptReferenceCounts{}) {
+		return counts
+	}
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	stored, ok := svc.sessions[sessionKey(appName, userID, sessionID)]
+	if !ok {
 		return PromptReferenceCounts{}
 	}
+	if err := svc.applyContextRecordsLocked(stored, actions.StateDelta); err != nil {
+		return PromptReferenceCounts{}
+	}
+	stored.UpdatedAt = time.Now()
+	if err := svc.persistLocked(stored); err != nil {
+		return PromptReferenceCounts{}
+	}
+	return counts
+}
+
+func AddPromptReferences(actions *adksession.EventActions, workspace, prompt string) PromptReferenceCounts {
 	var counts PromptReferenceCounts
 	for _, ref := range ExtractFileReferences(prompt) {
 		path := ResolveWorkspacePath(workspace, ref)
 		if path == "" {
 			continue
 		}
-		if err := svc.RecordFileRead(appName, userID, sessionID, path); err == nil {
-			counts.Files++
-		}
+		AddFileRead(actions, path)
+		counts.Files++
 	}
 	for _, ref := range ExtractSessionReferences(prompt) {
-		if err := svc.RecordSessionReference(appName, userID, sessionID, ref); err == nil {
-			counts.Sessions++
-		}
+		AddSessionReference(actions, ref)
+		counts.Sessions++
 	}
 	return counts
 }

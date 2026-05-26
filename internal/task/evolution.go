@@ -25,7 +25,6 @@ import (
 	"github.com/ai4next/superman/internal/hook"
 	"github.com/ai4next/superman/internal/memory"
 	supermanruntime "github.com/ai4next/superman/internal/runtime"
-	supermansession "github.com/ai4next/superman/internal/session"
 	"github.com/ai4next/superman/internal/tool"
 )
 
@@ -58,12 +57,12 @@ type evolutionPromptData struct {
 type Evolution struct {
 	runner   *runner.Runner
 	signal   chan hook.EvolutionSignal
-	sessions *supermansession.Service
+	sessions adksession.Service
 	broker   *supermanruntime.Broker
 }
 
 // NewEvolution creates an ADK agent for memory consolidation and optional expert cultivation.
-func NewEvolution(llm model.LLM, sessions *supermansession.Service) (*Evolution, error) {
+func NewEvolution(llm model.LLM, sessions adksession.Service) (*Evolution, error) {
 	deps := tool.Dependencies{
 		Config: evolutionToolConfig(),
 	}

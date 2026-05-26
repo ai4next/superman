@@ -8,16 +8,16 @@ import (
 
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
+	adksession "google.golang.org/adk/session"
 
 	"github.com/ai4next/superman/internal/global"
-	supermansession "github.com/ai4next/superman/internal/session"
 )
 
 // IdleWatcher monitors user activity and triggers autonomous reflection
 // after a configurable idle timeout.
 type IdleWatcher struct {
 	agent       agent.Agent
-	sessions    *supermansession.Service
+	sessions    adksession.Service
 	pluginCfg   runner.PluginConfig
 	lastActive  time.Time
 	mu          sync.Mutex
@@ -26,12 +26,12 @@ type IdleWatcher struct {
 }
 
 // NewIdleWatcher creates a new IdleWatcher with the given agent.
-func NewIdleWatcher(a agent.Agent, sessions *supermansession.Service) *IdleWatcher {
+func NewIdleWatcher(a agent.Agent, sessions adksession.Service) *IdleWatcher {
 	return NewIdleWatcherWithPlugins(a, sessions, runner.PluginConfig{})
 }
 
 // NewIdleWatcherWithPlugins creates an idle watcher with ADK plugins preserved.
-func NewIdleWatcherWithPlugins(a agent.Agent, sessions *supermansession.Service, pluginCfg runner.PluginConfig) *IdleWatcher {
+func NewIdleWatcherWithPlugins(a agent.Agent, sessions adksession.Service, pluginCfg runner.PluginConfig) *IdleWatcher {
 	cfg := global.Config()
 	return &IdleWatcher{
 		agent:       a,

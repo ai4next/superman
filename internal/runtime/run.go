@@ -16,6 +16,7 @@ type RunRequest struct {
 	UserID        string
 	SessionID     string
 	Message       *genai.Content
+	StateDelta    map[string]any
 	Config        agent.RunConfig
 	Compact       Compactor
 	LoopDetection LoopDetectionConfig
@@ -37,7 +38,7 @@ func StreamRun(ctx context.Context, runner *adkrunner.Runner, req RunRequest, br
 		}
 
 		loopDetector := NewLoopDetector(req.LoopDetection)
-		for adkEvent, err := range runner.Run(ctx, req.UserID, req.SessionID, req.Message, req.Config) {
+		for adkEvent, err := range runner.Run(ctx, req.UserID, req.SessionID, req.Message, req.Config, adkrunner.WithStateDelta(req.StateDelta)) {
 			if err != nil {
 				if errors.Is(err, context.Canceled) {
 					canceled := RunCanceled(req.SessionID, runID(adkEvent))

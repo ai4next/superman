@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"iter"
 	"maps"
 	"os"
 	"path/filepath"
@@ -19,199 +18,8 @@ import (
 	"github.com/ai4next/superman/internal/global"
 	persiststore "github.com/ai4next/superman/internal/store"
 	"github.com/google/uuid"
-	"google.golang.org/adk/model"
 	adksession "google.golang.org/adk/session"
 )
-
-type EventType string
-
-const (
-	CreatedEvent EventType = "created"
-	UpdatedEvent EventType = "updated"
-	DeletedEvent EventType = "deleted"
-)
-
-type Event[T any] struct {
-	Type    EventType `json:"type"`
-	Payload T         `json:"payload"`
-}
-
-type MessageRole string
-
-const (
-	MessageUser      MessageRole = "user"
-	MessageAssistant MessageRole = "assistant"
-	MessageTool      MessageRole = "tool"
-	MessageError     MessageRole = "error"
-)
-
-type Message struct {
-	ID           string      `json:"id"`
-	SessionID    string      `json:"session_id"`
-	EventID      string      `json:"event_id"`
-	InvocationID string      `json:"invocation_id"`
-	Role         MessageRole `json:"role"`
-	Content      string      `json:"content,omitempty"`
-	ToolName     string      `json:"tool_name,omitempty"`
-	ToolID       string      `json:"tool_id,omitempty"`
-	Args         string      `json:"args,omitempty"`
-	Result       string      `json:"result,omitempty"`
-	Status       string      `json:"status,omitempty"`
-	Summary      bool        `json:"summary,omitempty"`
-	CreatedAt    time.Time   `json:"created_at"`
-	UpdatedAt    time.Time   `json:"updated_at"`
-}
-
-type FileAccess string
-
-const (
-	FileRead    FileAccess = "read"
-	FileWritten FileAccess = "written"
-)
-
-type SessionFile struct {
-	Path       string     `json:"path"`
-	ReadAt     time.Time  `json:"read_at,omitempty"`
-	WrittenAt  time.Time  `json:"written_at,omitempty"`
-	ReadCount  int        `json:"read_count,omitempty"`
-	WriteCount int        `json:"write_count,omitempty"`
-	LastAccess FileAccess `json:"last_access,omitempty"`
-}
-
-type FileSnapshot struct {
-	Hash      string `json:"hash,omitempty"`
-	Size      int    `json:"size"`
-	Preview   string `json:"preview,omitempty"`
-	Missing   bool   `json:"missing,omitempty"`
-	Truncated bool   `json:"truncated,omitempty"`
-}
-
-type FileRevision struct {
-	ID        string       `json:"id"`
-	Path      string       `json:"path"`
-	Action    string       `json:"action"`
-	Before    FileSnapshot `json:"before"`
-	After     FileSnapshot `json:"after"`
-	CreatedAt time.Time    `json:"created_at"`
-}
-
-type FileChangeSummary struct {
-	File           SessionFile  `json:"file"`
-	FirstRevision  FileRevision `json:"first_revision"`
-	LatestRevision FileRevision `json:"latest_revision"`
-	Additions      int          `json:"additions"`
-	Deletions      int          `json:"deletions"`
-}
-
-type QueuedPrompt struct {
-	ID        string    `json:"id"`
-	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type SessionReference struct {
-	SessionID string      `json:"session_id"`
-	Role      MessageRole `json:"role,omitempty"`
-	Preview   string      `json:"preview,omitempty"`
-	CreatedAt time.Time   `json:"created_at"`
-}
-
-type Metadata struct {
-	AppName          string    `json:"app_name"`
-	UserID           string    `json:"user_id"`
-	SessionID        string    `json:"session_id"`
-	Title            string    `json:"title"`
-	MessageCount     int       `json:"message_count"`
-	PromptTokens     int64     `json:"prompt_tokens"`
-	CompletionTokens int64     `json:"completion_tokens"`
-	SummaryMessageID string    `json:"summary_message_id,omitempty"`
-	FileCount        int       `json:"file_count"`
-	QueuedPrompts    int       `json:"queued_prompts"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
-}
-
-type ContextWindow struct {
-	Summary    string
-	Messages   []Message
-	Files      []SessionFile
-	References []SessionReference
-}
-
-type MessageSearchOptions struct {
-	Query     string
-	SessionID string
-	Roles     []MessageRole
-	Limit     int
-}
-
-type MessageSearchResult struct {
-	Metadata Metadata `json:"metadata"`
-	Message  Message  `json:"message"`
-	Preview  string   `json:"preview"`
-}
-
-type ImportData struct {
-	Metadata      Metadata
-	Messages      []Message
-	Files         []SessionFile
-	FileRevisions []FileRevision
-	PromptQueue   []QueuedPrompt
-	References    []SessionReference
-	Overwrite     bool
-}
-
-type StorageStats struct {
-	RootDir                 string `json:"root_dir,omitempty"`
-	Sessions                int    `json:"sessions"`
-	Messages                int    `json:"messages"`
-	Files                   int    `json:"files"`
-	FileRevisions           int    `json:"file_revisions"`
-	PromptQueue             int    `json:"prompt_queue"`
-	References              int    `json:"references"`
-	SessionBytes            int64  `json:"session_bytes"`
-	SnapshotCount           int    `json:"snapshot_count"`
-	SnapshotBytes           int64  `json:"snapshot_bytes"`
-	ReferencedSnapshotCount int    `json:"referenced_snapshot_count"`
-	ReferencedSnapshotBytes int64  `json:"referenced_snapshot_bytes"`
-	OrphanSnapshotCount     int    `json:"orphan_snapshot_count"`
-	OrphanSnapshotBytes     int64  `json:"orphan_snapshot_bytes"`
-}
-
-type SnapshotCleanupResult struct {
-	DryRun       bool           `json:"dry_run"`
-	Removed      int            `json:"removed"`
-	RemovedBytes int64          `json:"removed_bytes"`
-	Kept         int            `json:"kept"`
-	KeptBytes    int64          `json:"kept_bytes"`
-	Orphans      []SnapshotInfo `json:"orphans,omitempty"`
-}
-
-type SnapshotInfo struct {
-	Hash string `json:"hash"`
-	Path string `json:"path,omitempty"`
-	Size int64  `json:"size"`
-}
-
-type storedSession struct {
-	ID               int64                  `json:"id,omitempty"`
-	AppName          string                 `json:"app_name"`
-	UserID           string                 `json:"user_id"`
-	SessionID        string                 `json:"session_id"`
-	Title            string                 `json:"title"`
-	State            map[string]any         `json:"state,omitempty"`
-	Events           []*adksession.Event    `json:"events,omitempty"`
-	Messages         []Message              `json:"messages,omitempty"`
-	Files            map[string]SessionFile `json:"files,omitempty"`
-	FileRevisions    []FileRevision         `json:"file_revisions,omitempty"`
-	PromptQueue      []QueuedPrompt         `json:"prompt_queue,omitempty"`
-	References       []SessionReference     `json:"references,omitempty"`
-	PromptTokens     int64                  `json:"prompt_tokens"`
-	CompletionTokens int64                  `json:"completion_tokens"`
-	SummaryMessageID string                 `json:"summary_message_id,omitempty"`
-	CreatedAt        time.Time              `json:"created_at"`
-	UpdatedAt        time.Time              `json:"updated_at"`
-}
 
 type Service struct {
 	mu        sync.RWMutex
@@ -222,7 +30,7 @@ type Service struct {
 	subs      map[chan Event[Message]]struct{}
 }
 
-func NewService() (*Service, error) {
+func NewService() (adksession.Service, error) {
 	s := &Service{
 		sessions:  make(map[string]*storedSession),
 		appState:  make(map[string]map[string]any),
@@ -344,7 +152,7 @@ func (s *Service) Delete(ctx context.Context, req *adksession.DeleteRequest) err
 		}
 	}
 	delete(s.sessions, key)
-	path := global.SessionLogPath(safeName(sessionID))
+	path := global.SessionLogPath(sessionID)
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -382,6 +190,10 @@ func (s *Service) AppendEvent(ctx context.Context, curSession adksession.Session
 	eventCopy := cloneEvent(event)
 	s.applyScopedStateLocked(stored.AppName, stored.UserID, eventCopy.Actions.StateDelta)
 	applySessionStateDelta(stored.State, eventCopy.Actions.StateDelta)
+	applySessionMetadataDelta(stored, eventCopy.Actions.StateDelta)
+	if err := s.applyContextRecordsLocked(stored, eventCopy.Actions.StateDelta); err != nil {
+		return err
+	}
 	stored.Events = append(stored.Events, eventCopy)
 	messages := projectEvent(stored.SessionID, eventCopy)
 	for _, msg := range messages {
@@ -550,27 +362,15 @@ func (s *Service) RecordFileRevision(appName, userID, sessionID, path, action, b
 }
 
 func (s *Service) RecordFileRevisionWithMissing(appName, userID, sessionID, path, action, before, after string, beforeMissing, afterMissing bool) (FileRevision, error) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return FileRevision{}, fmt.Errorf("invalid path: %w", err)
-	}
 	if err := s.writeSnapshotContent(before, beforeMissing); err != nil {
 		return FileRevision{}, err
 	}
 	if err := s.writeSnapshotContent(after, afterMissing); err != nil {
 		return FileRevision{}, err
 	}
-	now := time.Now()
-	revision := FileRevision{
-		ID:        uuid.NewString(),
-		Path:      abs,
-		Action:    strings.TrimSpace(action),
-		Before:    snapshotContent(before, beforeMissing),
-		After:     snapshotContent(after, afterMissing),
-		CreatedAt: now,
-	}
-	if revision.Action == "" {
-		revision.Action = "write"
+	revision, err := buildFileRevision(path, action, before, after, beforeMissing, afterMissing)
+	if err != nil {
+		return FileRevision{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -582,15 +382,34 @@ func (s *Service) RecordFileRevisionWithMissing(appName, userID, sessionID, path
 	if stored.Files == nil {
 		stored.Files = make(map[string]SessionFile)
 	}
-	file := stored.Files[abs]
-	file.Path = abs
+	file := stored.Files[revision.Path]
+	file.Path = revision.Path
 	file.LastAccess = FileWritten
-	file.WrittenAt = now
+	file.WrittenAt = revision.CreatedAt
 	file.WriteCount++
-	stored.Files[abs] = file
-	stored.UpdatedAt = now
+	stored.Files[revision.Path] = file
+	stored.UpdatedAt = revision.CreatedAt
 	if err := s.persistLocked(stored); err != nil {
 		return FileRevision{}, err
+	}
+	return revision, nil
+}
+
+func buildFileRevision(path, action, before, after string, beforeMissing, afterMissing bool) (FileRevision, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return FileRevision{}, fmt.Errorf("invalid path: %w", err)
+	}
+	revision := FileRevision{
+		ID:        uuid.NewString(),
+		Path:      abs,
+		Action:    strings.TrimSpace(action),
+		Before:    snapshotContent(before, beforeMissing),
+		After:     snapshotContent(after, afterMissing),
+		CreatedAt: time.Now(),
+	}
+	if revision.Action == "" {
+		revision.Action = "write"
 	}
 	return revision, nil
 }
@@ -620,67 +439,15 @@ func (s *Service) SessionFileChanges(appName, userID, sessionID string) ([]FileC
 	copy(revisions, stored.FileRevisions)
 	s.mu.RUnlock()
 
-	byPath := make(map[string][]FileRevision)
-	for _, revision := range revisions {
-		byPath[revision.Path] = append(byPath[revision.Path], revision)
+	fileList := make([]SessionFile, 0, len(files))
+	for _, file := range files {
+		fileList = append(fileList, file)
 	}
-	out := make([]FileChangeSummary, 0, len(byPath))
-	for path, versions := range byPath {
-		if len(versions) == 0 {
-			continue
-		}
-		sort.Slice(versions, func(i, j int) bool {
-			return versions[i].CreatedAt.Before(versions[j].CreatedAt)
-		})
-		first := versions[0]
-		latest := versions[len(versions)-1]
-		before, _, err := s.FileSnapshotContent(first.Before)
-		if err != nil {
-			return nil, fmt.Errorf("load first snapshot for %s: %w", path, err)
-		}
-		after, _, err := s.FileSnapshotContent(latest.After)
-		if err != nil {
-			return nil, fmt.Errorf("load latest snapshot for %s: %w", path, err)
-		}
-		additions, deletions := lineChangeCounts(before, after)
-		out = append(out, FileChangeSummary{
-			File:           files[path],
-			FirstRevision:  first,
-			LatestRevision: latest,
-			Additions:      additions,
-			Deletions:      deletions,
-		})
-		if out[len(out)-1].File.Path == "" {
-			out[len(out)-1].File.Path = path
-		}
-	}
-	sort.Slice(out, func(i, j int) bool {
-		return fileLastAccess(out[i].File).After(fileLastAccess(out[j].File))
-	})
-	return out, nil
+	return fileChangeSummaries(fileList, revisions)
 }
 
 func (s *Service) FileSnapshotContent(snapshot FileSnapshot) (string, bool, error) {
-	if snapshot.Missing {
-		return "", true, nil
-	}
-	if snapshot.Hash == "" {
-		if snapshot.Truncated {
-			return "", false, fmt.Errorf("snapshot content is truncated and has no hash")
-		}
-		return snapshot.Preview, false, nil
-	}
-	data, err := os.ReadFile(global.SessionSnapshotPath(snapshot.Hash))
-	if err == nil {
-		return string(data), false, nil
-	}
-	if !os.IsNotExist(err) {
-		return "", false, err
-	}
-	if snapshot.Truncated {
-		return "", false, fmt.Errorf("full snapshot %s is not available", snapshot.Hash)
-	}
-	return snapshot.Preview, false, nil
+	return FileSnapshotContent(snapshot)
 }
 
 func (s *Service) StorageStats() (StorageStats, error) {
@@ -694,7 +461,7 @@ func (s *Service) StorageStats() (StorageStats, error) {
 		stats.FileRevisions += len(stored.FileRevisions)
 		stats.PromptQueue += len(stored.PromptQueue)
 		stats.References += len(stored.References)
-		if info, err := os.Stat(global.SessionLogPath(safeName(stored.SessionID))); err == nil {
+		if info, err := os.Stat(global.SessionLogPath(stored.SessionID)); err == nil {
 			stats.SessionBytes += info.Size()
 		} else if !os.IsNotExist(err) {
 			s.mu.RUnlock()
@@ -771,6 +538,7 @@ func (s *Service) EnqueuePrompt(appName, userID, sessionID, content string) (Que
 		return QueuedPrompt{}, fmt.Errorf("session %s not found", sessionID)
 	}
 	stored.PromptQueue = append(stored.PromptQueue, prompt)
+	stored.setSessionState(sessionStatePromptQueue, stored.PromptQueue)
 	stored.UpdatedAt = now
 	if err := s.persistLocked(stored); err != nil {
 		return QueuedPrompt{}, err
@@ -791,6 +559,7 @@ func (s *Service) DequeuePrompt(appName, userID, sessionID string) (QueuedPrompt
 	prompt := stored.PromptQueue[0]
 	copy(stored.PromptQueue, stored.PromptQueue[1:])
 	stored.PromptQueue = stored.PromptQueue[:len(stored.PromptQueue)-1]
+	stored.setSessionState(sessionStatePromptQueue, stored.PromptQueue)
 	stored.UpdatedAt = time.Now()
 	if err := s.persistLocked(stored); err != nil {
 		return QueuedPrompt{}, false, err
@@ -822,6 +591,7 @@ func (s *Service) ClearPromptQueue(appName, userID, sessionID string) (int, erro
 		return 0, nil
 	}
 	stored.PromptQueue = nil
+	stored.setSessionState(sessionStatePromptQueue, []QueuedPrompt{})
 	stored.UpdatedAt = time.Now()
 	if err := s.persistLocked(stored); err != nil {
 		return 0, err
@@ -895,6 +665,89 @@ func (s *Service) recordFile(appName, userID, sessionID, path string, access Fil
 	return s.persistLocked(stored)
 }
 
+func (s *Service) applyContextRecordsLocked(stored *storedSession, stateDelta map[string]any) error {
+	records := contextRecords(&adksession.EventActions{StateDelta: stateDelta})
+	now := time.Now()
+	for _, path := range records.FileReads {
+		if err := applyFileRecord(stored, path, FileRead, now); err != nil {
+			return err
+		}
+	}
+	for _, path := range records.FileWrites {
+		if err := applyFileRecord(stored, path, FileWritten, now); err != nil {
+			return err
+		}
+	}
+	for _, note := range records.FileRevisions {
+		revision, err := buildFileRevision(note.Path, note.Action, note.Before, note.After, note.BeforeMissing, note.AfterMissing)
+		if err != nil {
+			return err
+		}
+		stored.FileRevisions = append(stored.FileRevisions, revision)
+		if stored.Files == nil {
+			stored.Files = make(map[string]SessionFile)
+		}
+		file := stored.Files[revision.Path]
+		file.Path = revision.Path
+		file.WrittenAt = revision.CreatedAt
+		file.WriteCount++
+		file.LastAccess = FileWritten
+		stored.Files[revision.Path] = file
+		if err := s.writeSnapshotContent(note.Before, note.BeforeMissing); err != nil {
+			return err
+		}
+		if err := s.writeSnapshotContent(note.After, note.AfterMissing); err != nil {
+			return err
+		}
+	}
+	for _, ref := range records.References {
+		upsertSessionReference(stored, ref, now)
+	}
+	return nil
+}
+
+func applyFileRecord(stored *storedSession, path string, access FileAccess, now time.Time) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("invalid path: %w", err)
+	}
+	if stored.Files == nil {
+		stored.Files = make(map[string]SessionFile)
+	}
+	file := stored.Files[abs]
+	file.Path = abs
+	file.LastAccess = access
+	switch access {
+	case FileRead:
+		file.ReadAt = now
+		file.ReadCount++
+	case FileWritten:
+		file.WrittenAt = now
+		file.WriteCount++
+	}
+	stored.Files[abs] = file
+	return nil
+}
+
+func upsertSessionReference(stored *storedSession, ref SessionReference, now time.Time) {
+	ref.SessionID = strings.TrimSpace(ref.SessionID)
+	if ref.SessionID == "" {
+		return
+	}
+	ref.Preview = compactPreview(ref.Preview, 240)
+	if ref.CreatedAt.IsZero() {
+		ref.CreatedAt = now
+	}
+	for i := len(stored.References) - 1; i >= 0; i-- {
+		existing := stored.References[i]
+		if existing.SessionID == ref.SessionID && existing.Role == ref.Role && existing.Preview == ref.Preview {
+			stored.References[i].CreatedAt = ref.CreatedAt
+			return
+		}
+	}
+	stored.References = append(stored.References, ref)
+}
+
 func (s *Service) Subscribe(ctx context.Context) <-chan Event[Message] {
 	ch := make(chan Event[Message], 256)
 	s.mu.Lock()
@@ -939,32 +792,6 @@ func (s *Service) ListMetadata(appName, userID string) []Metadata {
 	return out
 }
 
-func (s *Service) ContextWindow(appName, userID, sessionID string, maxMessages int) (ContextWindow, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	stored, ok := s.sessions[sessionKey(appName, userID, sessionID)]
-	if !ok {
-		return ContextWindow{}, fmt.Errorf("session %s not found", sessionID)
-	}
-	messages := make([]Message, len(stored.Messages))
-	copy(messages, stored.Messages)
-	var summary string
-	var nonSummary []Message
-	for _, msg := range messages {
-		if msg.Summary {
-			summary = msg.Content
-			continue
-		}
-		nonSummary = append(nonSummary, msg)
-	}
-	if maxMessages > 0 && len(nonSummary) > maxMessages {
-		nonSummary = nonSummary[len(nonSummary)-maxMessages:]
-	}
-	files := recentSessionFiles(stored.Files, maxMessages)
-	references := recentSessionReferences(stored.References, maxMessages)
-	return ContextWindow{Summary: summary, Messages: nonSummary, Files: files, References: references}, nil
-}
-
 func (s *Service) SetSummary(appName, userID, sessionID, summary string) (Message, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -983,6 +810,7 @@ func (s *Service) SetSummary(appName, userID, sessionID, summary string) (Messag
 		UpdatedAt: now,
 	}
 	stored.SummaryMessageID = msg.ID
+	stored.setSessionState(sessionStateSummaryMessageID, msg.ID)
 	s.upsertMessageLocked(stored, msg)
 	stored.UpdatedAt = now
 	if err := s.persistLocked(stored); err != nil {
@@ -1000,6 +828,7 @@ func (s *Service) Rename(appName, userID, sessionID, title string) error {
 		return fmt.Errorf("session %s not found", sessionID)
 	}
 	stored.Title = strings.TrimSpace(title)
+	stored.setSessionState(sessionStateTitle, stored.Title)
 	stored.UpdatedAt = time.Now()
 	return s.persistLocked(stored)
 }
@@ -1243,7 +1072,7 @@ func (s *Service) loadLegacySessionSidecar(stored *storedSession) error {
 }
 
 func (s *Service) loadLegacySessionJSON(stored *storedSession) error {
-	path := filepath.Join(global.SessionsDir(), safeName(stored.SessionID)+".json")
+	path := filepath.Join(global.SessionsDir(), stored.SessionID+".json")
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil
@@ -1267,7 +1096,7 @@ func (s *Service) loadLegacySessionJSON(stored *storedSession) error {
 }
 
 func (s *Service) loadLegacySessionJSONL(stored *storedSession) error {
-	path := filepath.Join(global.SessionsDir(), safeName(stored.SessionID)+".jsonl")
+	path := filepath.Join(global.SessionsDir(), stored.SessionID+".jsonl")
 	file, err := os.Open(path)
 	if os.IsNotExist(err) {
 		return nil
@@ -1418,7 +1247,7 @@ func (s *Service) applyScopedStateLocked(appName, userID string, state map[strin
 }
 
 func (s *Service) mergedStateLocked(stored *storedSession) map[string]any {
-	state := cloneMap(stored.State)
+	state := maps.Clone(stored.State)
 	if state == nil {
 		state = make(map[string]any)
 	}
@@ -1723,112 +1552,11 @@ func (s *Service) removeEmptySnapshotDirs() error {
 	return nil
 }
 
-type sessionView struct {
-	mu        sync.RWMutex
-	appName   string
-	userID    string
-	sessionID string
-	state     map[string]any
-	events    []*adksession.Event
-	updatedAt time.Time
-}
-
-func (s *storedSession) snapshot(state map[string]any) *sessionView {
-	return &sessionView{
-		appName:   s.AppName,
-		userID:    s.UserID,
-		sessionID: s.SessionID,
-		state:     state,
-		events:    cloneEvents(s.Events),
-		updatedAt: s.UpdatedAt,
-	}
-}
-
-func (s *sessionView) ID() string              { return s.sessionID }
-func (s *sessionView) AppName() string         { return s.appName }
-func (s *sessionView) UserID() string          { return s.userID }
-func (s *sessionView) State() adksession.State { return &stateView{state: s.state} }
-
-func (s *sessionView) Events() adksession.Events {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return eventsView(cloneEvents(s.events))
-}
-
-func (s *sessionView) LastUpdateTime() time.Time {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.updatedAt
-}
-
-func (s *sessionView) appendEvent(event *adksession.Event, state map[string]any, updatedAt time.Time) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.state = state
-	s.events = append(s.events, cloneEvent(event))
-	s.updatedAt = updatedAt
-}
-
-type stateView struct {
-	mu    sync.RWMutex
-	state map[string]any
-}
-
-func (s *stateView) Get(key string) (any, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	val, ok := s.state[key]
-	if !ok {
-		return nil, adksession.ErrStateKeyNotExist
-	}
-	return val, nil
-}
-
-func (s *stateView) Set(key string, val any) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.state == nil {
-		s.state = make(map[string]any)
-	}
-	s.state[key] = val
-	return nil
-}
-
-func (s *stateView) All() iter.Seq2[string, any] {
-	s.mu.RLock()
-	cp := cloneMap(s.state)
-	s.mu.RUnlock()
-	return func(yield func(string, any) bool) {
-		for k, v := range cp {
-			if !yield(k, v) {
-				return
-			}
-		}
-	}
-}
-
-type eventsView []*adksession.Event
-
-func (e eventsView) All() iter.Seq[*adksession.Event] {
-	return func(yield func(*adksession.Event) bool) {
-		for _, event := range e {
-			if !yield(event) {
-				return
-			}
-		}
-	}
-}
-
-func (e eventsView) Len() int { return len(e) }
-
-func (e eventsView) At(i int) *adksession.Event {
-	if i < 0 || i >= len(e) {
-		return nil
-	}
-	return e[i]
-}
-
 func projectEvent(sessionID string, event *adksession.Event) []Message {
+	return ProjectEvent(sessionID, event)
+}
+
+func ProjectEvent(sessionID string, event *adksession.Event) []Message {
 	if event == nil || event.Content == nil {
 		return nil
 	}
@@ -1846,6 +1574,7 @@ func projectEvent(sessionID string, event *adksession.Event) []Message {
 				InvocationID: event.InvocationID,
 				Role:         role,
 				Content:      part.Text,
+				Summary:      event.Actions.SkipSummarization,
 				CreatedAt:    event.Timestamp,
 				UpdatedAt:    event.Timestamp,
 			})
@@ -2266,6 +1995,18 @@ func applySessionStateDelta(state map[string]any, delta map[string]any) {
 	}
 }
 
+func applySessionMetadataDelta(stored *storedSession, delta map[string]any) {
+	if stored == nil || len(delta) == 0 {
+		return
+	}
+	if title, ok := delta[sessionStateTitle].(string); ok && strings.TrimSpace(title) != "" {
+		stored.Title = strings.TrimSpace(title)
+	}
+	if summaryID, ok := delta[sessionStateSummaryMessageID].(string); ok {
+		stored.SummaryMessageID = strings.TrimSpace(summaryID)
+	}
+}
+
 func sessionState(in map[string]any) map[string]any {
 	out := make(map[string]any)
 	for k, v := range in {
@@ -2277,13 +2018,6 @@ func sessionState(in map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
-}
-
-func cloneMap(in map[string]any) map[string]any {
-	if in == nil {
-		return nil
-	}
-	return maps.Clone(in)
 }
 
 func cloneEvents(in []*adksession.Event) []*adksession.Event {
@@ -2310,11 +2044,6 @@ func sessionKey(appName, userID, sessionID string) string {
 	return appName + "\x00" + userID + "\x00" + sessionID
 }
 
-func safeName(s string) string {
-	replacer := strings.NewReplacer("/", "_", "\\", "_", ":", "_", "\x00", "_")
-	return replacer.Replace(s)
-}
-
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if value != "" {
@@ -2330,9 +2059,3 @@ func toolStatus(resp map[string]any) string {
 	}
 	return "done"
 }
-
-var _ adksession.Service = (*Service)(nil)
-var _ adksession.Session = (*sessionView)(nil)
-var _ adksession.State = (*stateView)(nil)
-var _ adksession.Events = (eventsView)(nil)
-var _ = model.LLMResponse{}

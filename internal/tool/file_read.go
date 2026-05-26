@@ -95,6 +95,6 @@ func readFile(tctx tool.Context, deps Dependencies, input fileReadInput) (fileRe
 		EndLine:    endLine,
 		FilePath:   abs,
 	}
-	recordFileRead(tctx, deps, abs)
+	recordFileRead(tctx, abs)
 	return out, nil
 }

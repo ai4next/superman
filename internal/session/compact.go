@@ -1,8 +1,13 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
+
+	adksession "google.golang.org/adk/session"
+	"google.golang.org/genai"
 )
 
 type CompactOptions struct {
@@ -19,6 +24,10 @@ type CompactResult struct {
 }
 
 func (s *Service) Compact(appName, userID, sessionID string, opts CompactOptions) (CompactResult, error) {
+	return Compact(s, appName, userID, sessionID, opts)
+}
+
+func Compact(svc adksession.Service, appName, userID, sessionID string, opts CompactOptions) (CompactResult, error) {
 	if opts.MaxMessages <= 0 {
 		opts.MaxMessages = 60
 	}
@@ -29,9 +38,14 @@ func (s *Service) Compact(appName, userID, sessionID string, opts CompactOptions
 		opts.MaxSummaryRunes = 4000
 	}
 
-	messages, err := s.Messages(appName, userID, sessionID)
+	resp, err := svc.Get(context.Background(), &adksession.GetRequest{AppName: appName, UserID: userID, SessionID: sessionID})
 	if err != nil {
 		return CompactResult{}, err
+	}
+	var messages []Message
+	for event := range resp.Session.Events().All() {
+		eventMessages := ProjectEvent(sessionID, event)
+		messages = append(messages, eventMessages...)
 	}
 	var nonSummary []Message
 	for _, msg := range messages {
@@ -49,8 +63,22 @@ func (s *Service) Compact(appName, userID, sessionID string, opts CompactOptions
 		return result, nil
 	}
 	summaryText := buildDeterministicSummary(nonSummary[:cutoff], opts.MaxSummaryRunes)
-	summary, err := s.SetSummary(appName, userID, sessionID, summaryText)
-	if err != nil {
+	now := time.Now()
+	summaryID := "summary-" + formatStoredTime(now)
+	summary := Message{
+		ID:        summaryID,
+		SessionID: sessionID,
+		Role:      MessageAssistant,
+		Content:   summaryText,
+		Summary:   true,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	event := adksession.NewEvent(summaryID)
+	event.Author = "assistant"
+	event.Content = genai.NewContentFromText(summaryText, genai.RoleModel)
+	event.Actions.SkipSummarization = true
+	if err := svc.AppendEvent(context.Background(), resp.Session, event); err != nil {
 		return CompactResult{}, err
 	}
 	result.Compacted = true

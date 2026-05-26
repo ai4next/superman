@@ -10,9 +10,9 @@ import (
 
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
+	adksession "google.golang.org/adk/session"
 
 	"github.com/ai4next/superman/internal/global"
-	supermansession "github.com/ai4next/superman/internal/session"
 )
 
 // ScheduleTask defines a scheduled reflection task loaded from a JSON file.
@@ -27,18 +27,18 @@ type ScheduleTask struct {
 // from JSON files in a configured directory and executes enabled tasks.
 type Scheduler struct {
 	agent     agent.Agent
-	sessions  *supermansession.Service
+	sessions  adksession.Service
 	pluginCfg runner.PluginConfig
 	stopCh    chan struct{}
 }
 
 // NewScheduler creates a new Scheduler with the given agent.
-func NewScheduler(a agent.Agent, sessions *supermansession.Service) *Scheduler {
+func NewScheduler(a agent.Agent, sessions adksession.Service) *Scheduler {
 	return NewSchedulerWithPlugins(a, sessions, runner.PluginConfig{})
 }
 
 // NewSchedulerWithPlugins creates a scheduler with ADK plugins preserved.
-func NewSchedulerWithPlugins(a agent.Agent, sessions *supermansession.Service, pluginCfg runner.PluginConfig) *Scheduler {
+func NewSchedulerWithPlugins(a agent.Agent, sessions adksession.Service, pluginCfg runner.PluginConfig) *Scheduler {
 	return &Scheduler{
 		agent:     a,
 		sessions:  sessions,

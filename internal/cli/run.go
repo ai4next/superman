@@ -49,7 +49,7 @@ var runCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("create session service: %w", err)
 		}
-		a, extraPlugins, err := superman.New(llm, cfg, nil, sessionService, "", nil, nil, nil)
+		a, extraPlugins, err := superman.New(llm, cfg, nil, sessionService, nil, nil, nil)
 		if err != nil {
 			return fmt.Errorf("create agent: %w", err)
 		}
@@ -67,7 +67,7 @@ var runCmd = &cobra.Command{
 				adkPlugins = append(adkPlugins, p)
 			}
 		}
-
+		fmt.Println(len(adkPlugins))
 		r, err := runner.New(runner.Config{
 			Agent:             a,
 			AppName:           cfg.Session.AppName,
@@ -83,7 +83,6 @@ var runCmd = &cobra.Command{
 		if err := ensureRunSession(ctx, sessionService, &req); err != nil {
 			return err
 		}
-		supermansession.RecordPromptReferences(sessionService, req.AppName, req.UserID, req.SessionID, cfg.Workspace, prompt)
 
 		auditLogger := supermanruntime.NewAuditLogger(global.RuntimeEventsPath())
 		for event, err := range supermanruntime.StreamRun(ctx, r, req, nil) {
@@ -110,7 +109,7 @@ func writeRunEvent(w io.Writer, auditLogger *supermanruntime.AuditLogger, event 
 	return nil
 }
 
-func ensureRunSession(ctx context.Context, sessionService *supermansession.Service, req *supermanruntime.RunRequest) error {
+func ensureRunSession(ctx context.Context, sessionService adksession.Service, req *supermanruntime.RunRequest) error {
 	if sessionService == nil {
 		return nil
 	}
@@ -164,23 +163,18 @@ func runPromptInput(args []string, stdin io.Reader) (string, error) {
 	}
 }
 
-func buildRunRequest(cfg *config.Config, sessionService *supermansession.Service, prompt string) supermanruntime.RunRequest {
+func buildRunRequest(cfg *config.Config, sessionService adksession.Service, prompt string) supermanruntime.RunRequest {
 	return supermanruntime.RunRequest{
-		AppName:   cfg.Session.AppName,
-		UserID:    firstNonEmpty(runUser, "cli-user"),
-		SessionID: runSession,
-		Message:   genai.NewContentFromText(prompt, genai.RoleUser),
+		AppName:    cfg.Session.AppName,
+		UserID:     firstNonEmpty(runUser, "cli-user"),
+		SessionID:  runSession,
+		Message:    genai.NewContentFromText(prompt, genai.RoleUser),
+		StateDelta: supermanruntime.PromptStateDelta(cfg.Workspace, prompt),
 		LoopDetection: supermanruntime.LoopDetectionConfig{
 			Enabled:    cfg.Session.LoopDetection.Enabled,
 			WindowSize: cfg.Session.LoopDetection.WindowSize,
 			MaxRepeats: cfg.Session.LoopDetection.MaxRepeats,
 		},
-		Compact: supermansession.RuntimeCompactor{
-			Service: sessionService,
-			Options: supermansession.CompactOptions{
-				MaxMessages: cfg.Session.MaxTurns,
-				KeepLast:    20,
-			},
-		},
+		Compact: supermanruntime.SessionCompactor(sessionService, cfg.Session.MaxTurns),
 	}
 }

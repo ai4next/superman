@@ -3,7 +3,6 @@ package tool
 import (
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/expert"
-	supermansession "github.com/ai4next/superman/internal/session"
 	"google.golang.org/adk/tool"
 )
 
@@ -14,12 +13,7 @@ type ExpertManager interface {
 
 // Dependencies holds shared dependencies for all tools.
 type Dependencies struct {
-	Config      *config.Config
-	FileTracker interface {
-		RecordFileRead(appName, userID, sessionID, path string) error
-		RecordFileWrite(appName, userID, sessionID, path string) error
-		RecordFileRevision(appName, userID, sessionID, path, action, before, after string, beforeMissing bool) (supermansession.FileRevision, error)
-	}
+	Config         *config.Config
 	ExpertManager  ExpertManager `json:"-"`
 	DelegateRunner DelegateRunner
 	ExpertTools    bool
