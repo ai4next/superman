@@ -315,6 +315,21 @@ func TestChineseTextInputFallsBackToPrintableCode(t *testing.T) {
 	}
 }
 
+func TestPasteInsertsTextareaContent(t *testing.T) {
+	svc, cfg := newTestQueuedSession(t)
+	m := New(nil, cfg, runner.PluginConfig{}, svc)
+
+	updated, _ := m.Update(tea.PasteMsg{Content: "hello\n你好"})
+	model := updated.(*Model)
+
+	if model.inputValue() != "hello\n你好" {
+		t.Fatalf("input = %q, want pasted content", model.inputValue())
+	}
+	if model.cursorPos != 8 {
+		t.Fatalf("cursorPos = %d, want pasted rune count", model.cursorPos)
+	}
+}
+
 func TestViewUsesTextareaBarCursorForChineseInput(t *testing.T) {
 	svc, cfg := newTestQueuedSession(t)
 	m := New(nil, cfg, runner.PluginConfig{}, svc)
@@ -648,10 +663,13 @@ func TestToolsetsCommand(t *testing.T) {
 		t.Fatal("expected toolsets output message")
 	}
 	content := m.messages[len(m.messages)-1].Content
-	for _, want := range []string{"ADK toolsets", "skills:skills", "mcp:filesystem", "read_file", "confirm"} {
+	for _, want := range []string{"ADK toolsets", "skills:skills", "mcp:filesystem", "read_file"} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("toolsets output missing %q:\n%s", want, content)
 		}
+	}
+	if strings.Contains(content, "confirm") {
+		t.Fatalf("toolsets output should not mention confirmation:\n%s", content)
 	}
 }
 

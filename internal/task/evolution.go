@@ -101,9 +101,6 @@ func NewEvolution(llm model.LLM, sessions *supermansession.Service) (*Evolution,
 
 func evolutionToolConfig() *config.Config {
 	return &config.Config{
-		Permissions: config.PermissionsConfig{
-			SkipRequests: true,
-		},
 		Tools: config.ToolsConfig{
 			Read: config.ReadConfig{
 				Enabled: true,

@@ -28,9 +28,6 @@ func newWriteTool(deps Dependencies) tool.Tool {
 	t, _ := functiontool.New(functiontool.Config{
 		Name:        "write",
 		Description: "Write a file.",
-		RequireConfirmationProvider: func(input fileWriteInput) bool {
-			return deps.requiresConfirmation("write", input.Mode, input)
-		},
 	}, handler)
 	return t
 }

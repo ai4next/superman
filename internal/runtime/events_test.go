@@ -3,7 +3,6 @@ package runtime
 import (
 	"testing"
 
-	"github.com/ai4next/superman/internal/permission"
 	"google.golang.org/adk/session"
 	"google.golang.org/adk/tool/toolconfirmation"
 	"google.golang.org/genai"
@@ -70,20 +69,6 @@ func TestFromADKEventProjectsADKConfirmationCall(t *testing.T) {
 	}
 	if got[0].Args == "" || got[0].Args == "{}" {
 		t.Fatalf("confirmation args should include original call args: %+v", got[0])
-	}
-}
-
-func TestFromPermissionNotification(t *testing.T) {
-	got := FromPermissionNotification(permission.Notification{
-		Type:       permission.NotificationGranted,
-		SessionID:  "s1",
-		ToolCallID: "call-1",
-		ToolName:   permission.ToolWrite,
-		Decision:   permission.DecisionGranted,
-		Auto:       true,
-	})
-	if got.Type != EventPermissionGranted || got.ToolID != "call-1" || got.ToolName != permission.ToolWrite || !got.Auto {
-		t.Fatalf("event = %+v", got)
 	}
 }
 

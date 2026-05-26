@@ -119,7 +119,7 @@ func TestDescribeConfiguredToolsets(t *testing.T) {
 	if got[0].Name != "skills:shared-skills" || got[0].Kind != "skill" || got[0].Source != skillsDir {
 		t.Fatalf("skill descriptor = %#v", got[0])
 	}
-	if got[1].Name != "mcp:filesystem" || got[1].Kind != "mcp" || !got[1].RequiresConfirmation || len(got[1].Tools) != 1 || got[1].Tools[0] != "read_file" {
+	if got[1].Name != "mcp:filesystem" || got[1].Kind != "mcp" || got[1].RequiresConfirmation || len(got[1].Tools) != 1 || got[1].Tools[0] != "read_file" {
 		t.Fatalf("mcp descriptor = %#v", got[1])
 	}
 }

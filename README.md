@@ -37,14 +37,13 @@ go run . run "What's in this directory?"
 - **6 built-in tools** — code execution, file read/write/patch, user interaction, expert delegation
 - **MCP server integration** — plug in any MCP-compatible tool server via config (stdin/stdout transport)
 - **Persistent sessions** — SQLite-backed session/message store with compact `U/A/T/O` evolution logs, automatic compaction, file revision tracking, and session export/import
-- **Runtime audit** — Events (tool calls, text delta, permissions, errors, evolutions) streamed to a queryable JSONL audit log
+- **Runtime audit** — Events (tool calls, text delta, errors, evolutions) streamed to a queryable JSONL audit log
 - **Flat-file memory (L0-L3)** — runtime index (L0), global facts (L1), SOP files (L2), session archive (L3)
 - **Expert delegation** — dispatch tasks to expert sub-agents with isolated memory
 - **Plugin system** — unified run/model/tool logging and session reaper
 - **TUI interface** — Bubble Tea v2 + Lipgloss v2, dark theme, Emacs-style keybindings, sidebar, dialog system
 - **Hook system** — 11 lifecycle event hooks (before/after run, tool, model, etc.) with external script execution via JSON stdin/stdout protocol
 - **Skill system** — filesystem-based skills auto-loaded via ADK skilltoolset, compatible with Claude Code SKILL.md format, supports multiple skill paths
-- **Permission system** — granular per-tool allow/deny/confirm with skip-request skip lists and risky tool classification
 
 ## Commands
 
@@ -92,12 +91,6 @@ tools:
     enabled: true
     timeout: 30s
 
-# Granular tool permission control
-permissions:
-  skip_requests: false       # skip all HITL prompts for allowed tools
-  allowed_tools: []          # tools that never prompt for confirmation
-  risky_tools: [write, patch, code_run]
-
 # Skill system — multiple paths supported
 skills:
   enabled: true
@@ -113,7 +106,6 @@ mcp:
       command: npx
       args: [-y, @modelcontextprotocol/server-filesystem, /tmp]
       tools: []                 # empty = all tools; specify names to filter
-      requires_confirmation: true
 
 # Session management
 session:
@@ -211,7 +203,6 @@ mcp:
       command: npx
       args: [-y, @modelcontextprotocol/server-github]
       tools: [issues, pulls]
-      requires_confirmation: true
 ```
 
 Use `sm toolsets` to verify configured servers and their available tools.
@@ -238,7 +229,6 @@ superman/
 │   ├── memory/                      # L0-L3 flat-file memory (rules, profile, SOP, sessions)
 │   ├── session/                     # Persistent session manager with JSONL store, file tracking, references
 │   ├── runtime/                     # Event-driven runtime with audit logging
-│   ├── permission/                  # HITL prompt policy (skip-request lists, risky tool classification)
 │   ├── plugin/                      # Plugin registry + built-ins
 │   ├── hook/                        # Hook manager + script runner
 │   ├── reflect/                     # Autonomous idle watcher + scheduler

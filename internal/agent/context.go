@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"log"
 	"strings"
 
 	supermansession "github.com/ai4next/superman/internal/session"
@@ -92,6 +93,7 @@ func instructionProvider(build BuildConfig) func(adkagent.ReadonlyContext) (stri
 				}
 			}
 		}
+		log.Printf("[agent] session context:\n%s", builder.String())
 		return builder.String(), nil
 	}
 }

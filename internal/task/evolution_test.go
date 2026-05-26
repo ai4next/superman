@@ -9,7 +9,6 @@ import (
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/global"
 	"github.com/ai4next/superman/internal/hook"
-	"github.com/ai4next/superman/internal/permission"
 	supermanruntime "github.com/ai4next/superman/internal/runtime"
 )
 
@@ -42,19 +41,5 @@ func TestEvolutionLoopPublishesFailedEvent(t *testing.T) {
 	}
 	if got[1].Type != supermanruntime.EventEvolutionFailed || strings.TrimSpace(got[1].Error) == "" {
 		t.Fatalf("second event = %+v", got[1])
-	}
-}
-
-func TestEvolutionToolConfigSkipsConfirmations(t *testing.T) {
-	cfg := evolutionToolConfig()
-	policy := permission.NewPolicy(
-		cfg.Permissions.SkipRequests,
-		cfg.Permissions.AllowedTools,
-		cfg.Permissions.RiskyTools,
-	)
-	for _, toolName := range []string{permission.ToolCodeRun, permission.ToolWrite, permission.ToolPatch} {
-		if policy.RequiresConfirmation(permission.Request{ToolName: toolName}) {
-			t.Fatalf("%s should not require confirmation in background evolution", toolName)
-		}
 	}
 }

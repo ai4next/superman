@@ -25,12 +25,6 @@ tools:
   ask_user:
     enabled: true
 
-# Granular tool permission control
-permissions:
-  skip_requests: false       # true = skip all HITL confirmation prompts
-  allowed_tools: []          # tools that never prompt for confirmation
-  risky_tools: [write, patch, code_run]
-
 # Memory index limits
 memory:
   l1:
@@ -54,7 +48,6 @@ mcp:
       command: npx
       args: [-y, @modelcontextprotocol/server-filesystem, /tmp]
       tools: []                 # empty = all tools; specify names to filter
-      requires_confirmation: true
 
 # Session management
 session:

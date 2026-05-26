@@ -122,6 +122,17 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *Model) handlePaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
+	old := m.inputValue()
+	ta, cmd := m.textarea.Update(msg)
+	m.textarea = ta
+	m.syncInputFromTextarea()
+	if m.inputValue() != old {
+		m.resetPromptHistoryDraft()
+	}
+	return m, cmd
+}
+
 func isSlashCommandTrigger(msg tea.KeyPressMsg) bool {
 	key := msg.Key()
 	return key.Text == "/" || key.Code == '/'

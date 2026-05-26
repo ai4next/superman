@@ -25,10 +25,13 @@ func TestWriteToolsetsTable(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	for _, want := range []string{"NAME", "skills:skills", "mcp:filesystem", "read_file", "yes"} {
+	for _, want := range []string{"NAME", "skills:skills", "mcp:filesystem", "read_file"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("toolsets output missing %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "CONFIRM") || strings.Contains(out, "yes") {
+		t.Fatalf("toolsets output should not mention confirmation:\n%s", out)
 	}
 }
 

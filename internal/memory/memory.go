@@ -112,7 +112,22 @@ func (s *Service) GetL0Content() string {
 	l2Dir := s.l2Dir()
 	sections := s.listL1Sections()
 	sops := s.listL2SOPNames()
-	return fmt.Sprintf("L1 Facts (%s): %s\nL2 SOPs (%s): %s\n", l1Path, bracketList(sections, s.maxL1IndexItems), l2Dir+"/", bracketList(sops, s.maxL2IndexItems))
+	sb := strings.Builder{}
+	if facts := bracketList(sections, s.maxL1IndexItems); facts != "" {
+		sb.WriteString("Facts (")
+		sb.WriteString(l1Path)
+		sb.WriteString("): ")
+		sb.WriteString(facts)
+		sb.WriteString("\n")
+	}
+	if sops := bracketList(sops, s.maxL2IndexItems); sops != "" {
+		sb.WriteString("SOPs (")
+		sb.WriteString(l2Dir)
+		sb.WriteString("): ")
+		sb.WriteString(sops)
+		sb.WriteString("\n")
+	}
+	return sb.String()
 }
 
 // GetL1Content returns the L1 facts TOML file for system prompt injection.
@@ -233,7 +248,7 @@ func bracketList(values []string, maxItems int) string {
 		values = append(values[:maxItems], "etc...")
 	}
 	if len(values) == 0 {
-		return "[]"
+		return ""
 	}
 	return "[" + strings.Join(values, ", ") + "]"
 }

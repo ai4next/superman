@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ai4next/superman/internal/permission"
 	adksession "google.golang.org/adk/session"
 	"google.golang.org/adk/tool/toolconfirmation"
 	"google.golang.org/genai"
@@ -68,27 +67,6 @@ func RunFailed(sessionID, runID string, err error) Event {
 
 func RunCanceled(sessionID, runID string) Event {
 	return Event{Type: EventRunCanceled, SessionID: sessionID, RunID: runID, At: time.Now()}
-}
-
-func FromPermissionNotification(notification permission.Notification) Event {
-	eventType := EventPermissionRequested
-	switch notification.Type {
-	case permission.NotificationGranted:
-		eventType = EventPermissionGranted
-	case permission.NotificationDenied:
-		eventType = EventPermissionDenied
-	}
-	return Event{
-		Type:       eventType,
-		SessionID:  notification.SessionID,
-		At:         time.Now(),
-		ToolID:     notification.ToolCallID,
-		ToolName:   notification.ToolName,
-		Status:     string(notification.Decision),
-		Permission: true,
-		Auto:       notification.Auto,
-		Args:       notification.Description,
-	}
 }
 
 func EvolutionStarted(sessionID, role string) Event {

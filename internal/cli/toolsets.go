@@ -41,17 +41,13 @@ func writeToolsets(w io.Writer, cfg *config.Config, asJSON bool) error {
 		return err
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tKIND\tCONFIRM\tTOOLS\tSOURCE")
+	fmt.Fprintln(tw, "NAME\tKIND\tTOOLS\tSOURCE")
 	for _, ts := range toolsets {
-		confirm := "-"
-		if ts.RequiresConfirmation {
-			confirm = "yes"
-		}
 		tools := "-"
 		if len(ts.Tools) > 0 {
 			tools = strings.Join(ts.Tools, ",")
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", ts.Name, ts.Kind, confirm, tools, ts.Source)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", ts.Name, ts.Kind, tools, ts.Source)
 	}
 	return tw.Flush()
 }

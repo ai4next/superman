@@ -3,7 +3,6 @@ package tool
 import (
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/expert"
-	"github.com/ai4next/superman/internal/permission"
 	supermansession "github.com/ai4next/superman/internal/session"
 	"google.golang.org/adk/tool"
 )
@@ -16,9 +15,6 @@ type ExpertManager interface {
 // Dependencies holds shared dependencies for all tools.
 type Dependencies struct {
 	Config      *config.Config
-	Permissions interface {
-		RequiresConfirmation(permission.Request) bool
-	}
 	FileTracker interface {
 		RecordFileRead(appName, userID, sessionID, path string) error
 		RecordFileWrite(appName, userID, sessionID, path string) error
@@ -27,26 +23,6 @@ type Dependencies struct {
 	ExpertManager  ExpertManager `json:"-"`
 	DelegateRunner DelegateRunner
 	ExpertTools    bool
-}
-
-func (d Dependencies) requiresConfirmation(toolName, action string, input any) bool {
-	req := permission.Request{
-		ToolName: toolName,
-		Action:   action,
-		Input:    input,
-	}
-	if d.Permissions != nil {
-		return d.Permissions.RequiresConfirmation(req)
-	}
-	if d.Config == nil {
-		return false
-	}
-	policy := permission.NewPolicy(
-		d.Config.Permissions.SkipRequests,
-		d.Config.Permissions.AllowedTools,
-		d.Config.Permissions.RiskyTools,
-	)
-	return policy.RequiresConfirmation(req)
 }
 
 // RegisterAll creates and returns all enabled tools.

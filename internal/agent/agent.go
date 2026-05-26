@@ -23,7 +23,6 @@ import (
 	"github.com/ai4next/superman/internal/expert"
 	"github.com/ai4next/superman/internal/hook"
 	"github.com/ai4next/superman/internal/memory"
-	"github.com/ai4next/superman/internal/permission"
 	supermansession "github.com/ai4next/superman/internal/session"
 	"github.com/ai4next/superman/internal/tool"
 )
@@ -39,7 +38,6 @@ type BuildConfig struct {
 	Instruction       string
 	MemoryService     *memory.Service
 	SessionService    *supermansession.Service
-	PermissionService *permission.Service
 	ContextMessages   int
 	SOPContent        string
 	ExpertRegistry    *expert.Registry
@@ -90,7 +88,7 @@ func DescribeConfiguredToolsets(cfg *config.Config) []ToolsetDescriptor {
 			Kind:                 "mcp",
 			Source:               source,
 			Tools:                append([]string(nil), server.Tools...),
-			RequiresConfirmation: server.RequiresConfirmation,
+			RequiresConfirmation: false,
 		})
 	}
 	return out
@@ -108,7 +106,6 @@ func NewFromConfig(llm model.LLM, cfg *config.Config, build BuildConfig) (adkage
 
 	deps := tool.Dependencies{
 		Config:         cfg,
-		Permissions:    build.PermissionService,
 		FileTracker:    build.SessionService,
 		ExpertManager:  expertRegistry,
 		DelegateRunner: delegateRunner,
@@ -204,7 +201,7 @@ func buildMCPToolsets(cfg *config.Config) []adktool.Toolset {
 				Command: exec.Command(server.Command, server.Args...),
 			},
 			ToolFilter:                  mcpToolFilter(server.Tools),
-			RequireConfirmation:         server.RequiresConfirmation,
+			RequireConfirmation:         false,
 			RequireConfirmationProvider: nil,
 		})
 		if err != nil {
@@ -254,7 +251,6 @@ func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, sessionSvc *
 		Instruction:       systemPrompt,
 		MemoryService:     memSvc,
 		SessionService:    sessionSvc,
-		PermissionService: permission.NewService(permission.NewPolicy(cfg.Permissions.SkipRequests, cfg.Permissions.AllowedTools, cfg.Permissions.RiskyTools)),
 		ContextMessages:   12,
 		SOPContent:        sopContent,
 		ExpertRegistry:    expertRegistry,

@@ -169,7 +169,6 @@ func reflectTestConfig(workspace string) *config.Config {
 				MaxRepeats: 3,
 			},
 		},
-		Permissions: config.PermissionsConfig{SkipRequests: true},
 		Reflect: config.ReflectConfig{
 			Autonomous: config.AutonomousConfig{IdleTimeout: config.Duration(time.Minute)},
 		},

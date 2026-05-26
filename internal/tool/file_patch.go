@@ -28,9 +28,6 @@ func newPatchTool(deps Dependencies) tool.Tool {
 	t, _ := functiontool.New(functiontool.Config{
 		Name:        "patch",
 		Description: "Replace one exact text match in a file.",
-		RequireConfirmationProvider: func(input filePatchInput) bool {
-			return deps.requiresConfirmation("patch", "replace", input)
-		},
 	}, handler)
 	return t
 }

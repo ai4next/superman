@@ -37,14 +37,13 @@ go run . run "这个目录里有什么？"
 - **6 个内建工具** — 代码执行、文件读写/补丁、用户交互、专家委托
 - **MCP Server 集成** — 通过配置接入任意 MCP 兼容工具服务（stdin/stdout transport）
 - **持久会话** — SQLite-backed session/message store，配套精简 `U/A/T/O` 进化日志，支持自动压缩、文件 revision tracking、session 导入导出
-- **运行时审计** — 工具调用、文本增量、权限、错误、进化等事件流式写入可查询 JSONL audit log
+- **运行时审计** — 工具调用、文本增量、错误、进化等事件流式写入可查询 JSONL audit log
 - **扁平文件记忆** — 运行时索引、全局事实、SOP 文件，以及精简会话日志
 - **专家委托** — 将任务分派给拥有独立记忆的专家子 Agent
 - **插件系统** — 统一 run/model/tool 日志与会话回收
 - **TUI 界面** — Bubble Tea v2 + Lipgloss v2，暗色主题、Emacs 风格键绑定、侧边栏、Dialog 系统
 - **Hook 系统** — 11 种生命周期事件钩子（run/tool/model 等前后），通过 JSON stdin/stdout 协议执行外部脚本
 - **Skill 系统** — 基于文件系统的技能自动加载（ADK skilltoolset），兼容 Claude Code `SKILL.md` 格式，支持多个 skill path
-- **权限系统** — 按工具粒度 allow/deny/confirm，支持 skip-request 列表和 risky tool 分类
 
 ## 命令
 
@@ -108,12 +107,6 @@ tools:
   ask_user:
     enabled: true
 
-# 细粒度工具权限控制
-permissions:
-  skip_requests: false       # true = 跳过所有 HITL confirmation
-  allowed_tools: []          # 永不请求确认的工具
-  risky_tools: [write, patch, code_run]
-
 # Memory 索引限制
 memory:
   l1:
@@ -137,7 +130,6 @@ mcp:
       command: npx
       args: [-y, @modelcontextprotocol/server-filesystem, /tmp]
       tools: []                 # 空列表 = 全部工具；也可指定工具名过滤
-      requires_confirmation: true
 
 # 会话管理
 session:
@@ -250,7 +242,6 @@ mcp:
       command: npx
       args: [-y, @modelcontextprotocol/server-github]
       tools: [issues, pulls]
-      requires_confirmation: true
 ```
 
 使用 `sm toolsets` 可以确认当前配置的 servers 及其可用工具。
@@ -278,7 +269,6 @@ superman/
 │   ├── session/                     # 持久 SessionService：SQLite + compact log、file tracking、references
 │   ├── store/                       # GORM/SQLite 持久化模型与读写
 │   ├── runtime/                     # 事件驱动 runtime 与 audit logging
-│   ├── permission/                  # HITL 权限策略（skip-request、risky tool 分类）
 │   ├── plugin/                      # 插件注册中心 + 内建插件
 │   ├── hook/                        # Hook 管理器 + 脚本执行器
 │   ├── reflect/                     # 自主空闲监听 + 调度器

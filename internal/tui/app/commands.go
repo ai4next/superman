@@ -292,9 +292,6 @@ func formatToolsets(toolsets []supermanagent.ToolsetDescriptor, limit int) strin
 		b.WriteString(" [")
 		b.WriteString(ts.Kind)
 		b.WriteString("]")
-		if ts.RequiresConfirmation {
-			b.WriteString(" confirm")
-		}
 		if len(ts.Tools) > 0 {
 			b.WriteString(" tools:")
 			b.WriteString(strings.Join(ts.Tools, ","))

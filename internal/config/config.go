@@ -4,25 +4,17 @@ import "time"
 
 // Config is the top-level configuration for the Superman agent.
 type Config struct {
-	Workspace   string            `mapstructure:"workspace"`
-	Model       ModelConfig       `mapstructure:"model"`
-	Server      ServerConfig      `mapstructure:"server"`
-	Tools       ToolsConfig       `mapstructure:"tools"`
-	Memory      MemoryConfig      `mapstructure:"memory"`
-	Permissions PermissionsConfig `mapstructure:"permissions"`
-	Plugins     []PluginConfig    `mapstructure:"plugins"`
-	Skills      SkillsConfig      `mapstructure:"skills"`
-	MCP         MCPConfig         `mapstructure:"mcp"`
-	Session     SessionConfig     `mapstructure:"session"`
-	Reflect     ReflectConfig     `mapstructure:"reflect"`
-	Expert      ExpertConfig      `mapstructure:"expert"`
-}
-
-// PermissionsConfig controls HITL prompts for sensitive tool calls.
-type PermissionsConfig struct {
-	SkipRequests bool     `mapstructure:"skip_requests"`
-	AllowedTools []string `mapstructure:"allowed_tools"`
-	RiskyTools   []string `mapstructure:"risky_tools"`
+	Workspace string         `mapstructure:"workspace"`
+	Model     ModelConfig    `mapstructure:"model"`
+	Server    ServerConfig   `mapstructure:"server"`
+	Tools     ToolsConfig    `mapstructure:"tools"`
+	Memory    MemoryConfig   `mapstructure:"memory"`
+	Plugins   []PluginConfig `mapstructure:"plugins"`
+	Skills    SkillsConfig   `mapstructure:"skills"`
+	MCP       MCPConfig      `mapstructure:"mcp"`
+	Session   SessionConfig  `mapstructure:"session"`
+	Reflect   ReflectConfig  `mapstructure:"reflect"`
+	Expert    ExpertConfig   `mapstructure:"expert"`
 }
 
 // ModelConfig configures the LLM provider.

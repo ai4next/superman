@@ -86,7 +86,6 @@ func TestDelegateRunPersistsSessionReferencesAndAudit(t *testing.T) {
 				MaxRepeats: 3,
 			},
 		},
-		Permissions: config.PermissionsConfig{SkipRequests: true},
 	}
 	global.SetConfig(cfg)
 	t.Cleanup(func() { global.SetConfig(nil) })
