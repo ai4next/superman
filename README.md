@@ -17,18 +17,36 @@ General-purpose autonomous AI agent. Multi-model support, 6 built-in tools, flat
 
 ## Quick Start
 
+Install the latest release on Linux or macOS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ai4next/superman/main/install.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+iwr https://raw.githubusercontent.com/ai4next/superman/main/install.ps1 -useb | iex
+```
+
 ```bash
 # Create and edit config
-go run . init
+sm init
 
 # Set your API key
 export OPENAI_API_KEY=sk-...
 
 # Start the terminal UI
-go run .
+sm
 
 # Or run a single prompt
-go run . run "What's in this directory?"
+sm run "What's in this directory?"
+```
+
+Install a specific release or use a user-writable directory:
+
+```bash
+VERSION=v0.0.1 INSTALL_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://raw.githubusercontent.com/ai4next/superman/main/install.sh)"
 ```
 
 ## Features
@@ -318,6 +336,18 @@ All runtime data is stored under `workspace` in `config.yaml`. If omitted, it de
 ```
 
 ## Build
+
+Install from GitHub Releases:
+
+```bash
+# macOS/Linux
+curl -fsSL https://raw.githubusercontent.com/ai4next/superman/main/install.sh | sh
+
+# Windows PowerShell
+iwr https://raw.githubusercontent.com/ai4next/superman/main/install.ps1 -useb | iex
+```
+
+Build from source:
 
 ```bash
 go build -o sm .

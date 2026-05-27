@@ -17,18 +17,36 @@
 
 ## 快速开始
 
+在 Linux 或 macOS 上安装最新发布版：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ai4next/superman/main/install.sh | sh
+```
+
+Windows PowerShell：
+
+```powershell
+iwr https://raw.githubusercontent.com/ai4next/superman/main/install.ps1 -useb | iex
+```
+
 ```bash
 # 创建并编辑配置
-go run . init
+sm init
 
 # 设置 API Key
 export OPENAI_API_KEY=sk-...
 
 # 启动终端界面
-go run .
+sm
 
 # 或单次执行
-go run . run "这个目录里有什么？"
+sm run "这个目录里有什么？"
+```
+
+也可以指定版本或安装到用户目录：
+
+```bash
+VERSION=v0.0.1 INSTALL_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://raw.githubusercontent.com/ai4next/superman/main/install.sh)"
 ```
 
 ## 功能特性
@@ -356,6 +374,18 @@ superman/
 ```
 
 ## 构建
+
+从 GitHub Releases 安装：
+
+```bash
+# macOS/Linux
+curl -fsSL https://raw.githubusercontent.com/ai4next/superman/main/install.sh | sh
+
+# Windows PowerShell
+iwr https://raw.githubusercontent.com/ai4next/superman/main/install.ps1 -useb | iex
+```
+
+从源码构建：
 
 ```bash
 go build -o sm .
