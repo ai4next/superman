@@ -108,3 +108,37 @@ mcp:
 		t.Fatalf("mcp arg = %q, want %q", cfg.MCP.Servers[0].Args[0], want)
 	}
 }
+
+func TestLoadExpandsIMPlatformOptions(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("SUPERMAN_TEST_TOKEN", "expanded-token")
+
+	cfgPath := filepath.Join(tmp, "config.yaml")
+	data := []byte(`workspace: ` + tmp + `
+im:
+  platforms:
+    - name: telegram
+      enabled: true
+      options:
+        token: ${SUPERMAN_TEST_TOKEN}
+        allow_from: user-1
+        group_reply_all: true
+`)
+	if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.IM.Platforms) != 1 {
+		t.Fatalf("IM platform count = %d, want 1", len(cfg.IM.Platforms))
+	}
+	if got := cfg.IM.Platforms[0].Options["token"]; got != "expanded-token" {
+		t.Fatalf("token = %#v, want expanded-token", got)
+	}
+	if got := cfg.IM.Platforms[0].Options["group_reply_all"]; got != true {
+		t.Fatalf("group_reply_all = %#v, want true", got)
+	}
+}

@@ -51,10 +51,21 @@ func Load(configPath string) (*Config, error) {
 	// Expand ${VAR} references in api_key
 	cfg.Model.APIKey = os.ExpandEnv(cfg.Model.APIKey)
 	expandPaths(&cfg)
+	expandIMOptions(&cfg)
 
 	applyDefaults(&cfg, skillsEnabledSet, loopDetectionEnabledSet)
 	normalizePaths(&cfg)
 	return &cfg, nil
+}
+
+func expandIMOptions(cfg *Config) {
+	for i := range cfg.IM.Platforms {
+		for key, value := range cfg.IM.Platforms[i].Options {
+			if s, ok := value.(string); ok {
+				cfg.IM.Platforms[i].Options[key] = os.ExpandEnv(s)
+			}
+		}
+	}
 }
 
 // stringToDurationHook returns a mapstructure DecodeHookFunc that converts

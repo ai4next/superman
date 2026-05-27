@@ -15,6 +15,7 @@ type Config struct {
 	Session   SessionConfig  `mapstructure:"session"`
 	Reflect   ReflectConfig  `mapstructure:"reflect"`
 	Expert    ExpertConfig   `mapstructure:"expert"`
+	IM        IMConfig       `mapstructure:"im"`
 }
 
 // ModelConfig configures the LLM provider.
@@ -150,6 +151,18 @@ type SchedulerConfig struct {
 type ExpertConfig struct {
 	Enabled  bool `mapstructure:"enabled"`
 	MaxCount int  `mapstructure:"max_count"`
+}
+
+// IMConfig configures instant-messaging platform adapters.
+type IMConfig struct {
+	Platforms []IMPlatformConfig `mapstructure:"platforms"`
+}
+
+// IMPlatformConfig configures an IM platform adapter by name.
+type IMPlatformConfig struct {
+	Name    string                 `mapstructure:"name"`
+	Enabled bool                   `mapstructure:"enabled"`
+	Options map[string]interface{} `mapstructure:"options"`
 }
 
 // Duration unmarshals YAML duration strings like "30s", "2h", "24h".

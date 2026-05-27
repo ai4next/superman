@@ -3,7 +3,7 @@
 
 ![Logo](assets/banner.png)
 
-General-purpose autonomous AI agent. Multi-model support, 6 built-in tools, flat-file memory, expert delegation, MCP server integration, persistent session management, and Bubble Tea v2 TUI.
+General-purpose autonomous AI agent. Multi-model support, 6 built-in tools, flat-file memory, expert delegation, MCP server integration, instant-messaging integration, persistent session management, and a terminal UI.
 
 ## Design Philosophy
 
@@ -24,7 +24,7 @@ cp config.example.yaml config.yaml
 # Set your API key
 export OPENAI_API_KEY=sk-...
 
-# Start the TUI
+# Start the terminal UI
 go run .
 
 # Or run a single prompt
@@ -36,12 +36,13 @@ go run . run "What's in this directory?"
 - **Multi-model support** — Gemini (Vertex AI), OpenAI, DeepSeek, Claude, Ollama, and any OpenAI-compatible API
 - **6 built-in tools** — code execution, file read/write/patch, user interaction, expert delegation
 - **MCP server integration** — plug in any MCP-compatible tool server via config (stdin/stdout transport)
+- **Instant-messaging integration** — run a long-lived server that connects Superman to Telegram, Feishu/Lark, WeCom, Weixin, QQ, DingTalk, Slack, Discord, LINE, and Weibo
 - **Persistent sessions** — SQLite-backed session/message store with compact `U/A/T/O` evolution logs, automatic compaction, file revision tracking, and session export/import
 - **Runtime audit** — Events (tool calls, text delta, errors, evolutions) streamed to a queryable JSONL audit log
 - **Flat-file memory (L0-L3)** — runtime index (L0), global facts (L1), SOP files (L2), session archive (L3)
 - **Expert delegation** — dispatch tasks to expert sub-agents with isolated memory
 - **Plugin system** — unified run/model/tool logging and session reaper
-- **TUI interface** — Bubble Tea v2 + Lipgloss v2, dark theme, Emacs-style keybindings, sidebar, dialog system
+- **Terminal UI** — dark theme, Emacs-style keybindings, sidebar, and dialog system
 - **Hook system** — 11 lifecycle event hooks (before/after run, tool, model, etc.) with external script execution via JSON stdin/stdout protocol
 - **Skill system** — filesystem-based skills auto-loaded via ADK skilltoolset, compatible with Claude Code SKILL.md format, supports multiple skill paths
 
@@ -49,11 +50,12 @@ go run . run "What's in this directory?"
 
 | Command | Description |
 |---------|-------------|
-| `sm` | Start interactive TUI chat |
+| `sm` | Start interactive terminal chat |
 | `sm run "prompt"` | Run a single prompt, print response |
 | `sm run -f prompt.txt` | Run a prompt from a file |
 | `sm run -p "hello"` | Run with `--prompt` flag |
 | `sm reflect` | Start autonomous idle-watch + scheduler mode |
+| `sm im serve` | Run the instant-messaging integration server |
 | `sm configure` | Show or initialize configuration |
 | `sm toolsets` | List configured ADK Skill and MCP toolsets |
 | `sm sessions list` | List persistent sessions |
@@ -121,6 +123,51 @@ plugins:
 ```
 
 Environment variables override config: `SUPERMAN_MODEL_PROVIDER=openai`, `SUPERMAN_MODEL_API_KEY=sk-...`, etc.
+
+### Instant Messaging
+
+Enable one or more `im.platforms` entries, set the required platform credentials, then run:
+
+```bash
+sm im serve --config config.yaml
+```
+
+`im serve` is a long-lived server process. Run it under your preferred process manager, or in a shell background job:
+
+```bash
+nohup sm im serve --config config.yaml > ~/.sm/runtime/im.log 2>&1 &
+```
+
+Example:
+
+```yaml
+im:
+  platforms:
+    - name: feishu
+      enabled: true
+      options:
+        app_id: ${FEISHU_APP_ID}
+        app_secret: ${FEISHU_APP_SECRET}
+        domain: feishu
+        allow_from: ""
+
+    - name: qq
+      enabled: false
+      options:
+        ws_url: ws://127.0.0.1:3001
+        token: ${QQ_ONEBOT_TOKEN}
+        allow_from: ""
+```
+
+See `config.example.yaml` for Telegram, Feishu/Lark, WeCom, Weixin, QQ, QQ official bot, DingTalk, Slack, Discord, LINE, and Weibo examples.
+
+For Weixin personal accounts, use QR setup first:
+
+```bash
+sm im weixin setup
+```
+
+The command prints a QR code in the terminal, waits for phone confirmation, prints the token and account values, then exits. Add the printed values to your `weixin` entry in `im.platforms` before running `sm im serve`.
 
 ## Tools
 
@@ -219,8 +266,8 @@ superman/
 │   │   ├── prompt/system.txt        # System prompt
 │   │   └── toolsets.go              # Skill + MCP toolset construction
 │   ├── config/                      # YAML + env config (viper)
-│   ├── cli/                         # Cobra CLI commands (run, reflect, configure, toolsets, sessions, runtime)
-│   ├── tui/                         # Bubble Tea v2 TUI
+│   ├── cli/                         # Cobra CLI commands (run, reflect, im, configure, toolsets, sessions, runtime)
+│   ├── tui/                         # Terminal UI
 │   │   ├── tui.go                   # Compatibility wrapper
 │   │   ├── app/                     # Model, runtime, sessions, commands, dialogs, layout
 │   │   ├── components/              # Chat, input line, toolbar, sidebar renderers
@@ -229,6 +276,7 @@ superman/
 │   ├── memory/                      # L0-L3 flat-file memory (rules, profile, SOP, sessions)
 │   ├── session/                     # Persistent session manager with JSONL store, file tracking, references
 │   ├── runtime/                     # Event-driven runtime with audit logging
+│   ├── im/                          # Instant-messaging integration
 │   ├── plugin/                      # Plugin registry + built-ins
 │   ├── hook/                        # Hook manager + script runner
 │   ├── reflect/                     # Autonomous idle watcher + scheduler
@@ -250,7 +298,7 @@ All runtime data is stored under `workspace` in `config.yaml`. If omitted, it de
 ```
 ~/.sm/                                    # workspace (default: $HOME/.sm)
 ├── config.yaml                           # User configuration (created by `sm configure`)
-├── tui.log                               # TUI runtime log (redirected for display safety)
+├── tui.log                               # Terminal UI runtime log (redirected for display safety)
 ├── hooks/                                # Hook event scripts (11 lifecycle events)
 ├── skills/                               # Skill definitions (SKILL.md)
 ├── memory/                               # Superman's flat-file memory

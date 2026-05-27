@@ -41,7 +41,7 @@ var rootCmd = &cobra.Command{
 	Use:   "superman",
 	Short: "Superman - general-purpose autonomous AI agent",
 	Long: `Superman is a general-purpose autonomous AI agent built with Google ADK.
-	It supports multiple model providers, 9 built-in tools, layered memory,
+	It supports multiple model providers, 6 built-in tools, layered memory,
 	TUI interface, and autonomous reflection modes.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		configPath, _ := cmd.Flags().GetString("config")
@@ -61,4 +61,5 @@ func init() {
 	rootCmd.AddCommand(toolsetsCmd)
 	rootCmd.AddCommand(sessionsCmd)
 	rootCmd.AddCommand(runtimeCmd)
+	rootCmd.AddCommand(imCmd)
 }

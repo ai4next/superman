@@ -3,7 +3,7 @@
 
 ![Logo](assets/banner.png)
 
-通用自治 AI Agent。支持多模型、6 个内建工具、扁平文件记忆、专家委托、MCP Server 集成、持久会话管理，以及 Bubble Tea v2 TUI。
+通用自治 AI Agent。支持多模型、6 个内建工具、扁平文件记忆、专家委托、MCP Server 集成、即时通信软件接入、持久会话管理，以及终端界面。
 
 ## 设计哲学
 
@@ -24,7 +24,7 @@ cp config.example.yaml config.yaml
 # 设置 API Key
 export OPENAI_API_KEY=sk-...
 
-# 启动 TUI
+# 启动终端界面
 go run .
 
 # 或单次执行
@@ -36,12 +36,13 @@ go run . run "这个目录里有什么？"
 - **多模型支持** — Gemini (Vertex AI)、OpenAI、DeepSeek、Claude、Ollama，以及任何兼容 OpenAI 的 API
 - **6 个内建工具** — 代码执行、文件读写/补丁、用户交互、专家委托
 - **MCP Server 集成** — 通过配置接入任意 MCP 兼容工具服务（stdin/stdout transport）
+- **即时通信软件接入** — 以常驻 server 方式接入 Telegram、飞书/Lark、企业微信、微信个人号、QQ、钉钉、Slack、Discord、LINE、微博等平台
 - **持久会话** — SQLite-backed session/message store，配套精简 `U/A/T/O` 进化日志，支持自动压缩、文件 revision tracking、session 导入导出
 - **运行时审计** — 工具调用、文本增量、错误、进化等事件流式写入可查询 JSONL audit log
 - **扁平文件记忆** — 运行时索引、全局事实、SOP 文件，以及精简会话日志
 - **专家委托** — 将任务分派给拥有独立记忆的专家子 Agent
 - **插件系统** — 统一 run/model/tool 日志与会话回收
-- **TUI 界面** — Bubble Tea v2 + Lipgloss v2，暗色主题、Emacs 风格键绑定、侧边栏、Dialog 系统
+- **终端界面** — 暗色主题、Emacs 风格键绑定、侧边栏、Dialog 系统
 - **Hook 系统** — 11 种生命周期事件钩子（run/tool/model 等前后），通过 JSON stdin/stdout 协议执行外部脚本
 - **Skill 系统** — 基于文件系统的技能自动加载（ADK skilltoolset），兼容 Claude Code `SKILL.md` 格式，支持多个 skill path
 
@@ -49,11 +50,12 @@ go run . run "这个目录里有什么？"
 
 | 命令 | 说明 |
 |------|------|
-| `sm` | 启动交互式 TUI 聊天 |
+| `sm` | 启动交互式终端聊天 |
 | `sm run "提示词"` | 单次执行并打印响应 |
 | `sm run -f prompt.txt` | 从文件读取提示词执行 |
 | `sm run -p "hello"` | 使用 `--prompt` flag 执行 |
 | `sm reflect` | 启动自主空闲监听 + 调度模式 |
+| `sm im serve` | 启动即时通信接入 server |
 | `sm configure` | 查看或初始化配置 |
 | `sm toolsets` | 列出已配置的 ADK Skill 和 MCP toolsets |
 | `sm sessions list` | 列出持久会话 |
@@ -161,6 +163,51 @@ plugins:
 
 环境变量可以覆盖配置：`SUPERMAN_MODEL_PROVIDER=openai`、`SUPERMAN_MODEL_API_KEY=sk-...` 等。
 
+### 即时通信接入
+
+在 `im.platforms` 中启用一个或多个平台，配置对应凭据，然后运行：
+
+```bash
+sm im serve --config config.yaml
+```
+
+`im serve` 是一个常驻 server 进程。可以交给你习惯的进程管理器托管，也可以用 shell 后台方式运行：
+
+```bash
+nohup sm im serve --config config.yaml > ~/.sm/runtime/im.log 2>&1 &
+```
+
+示例：
+
+```yaml
+im:
+  platforms:
+    - name: feishu
+      enabled: true
+      options:
+        app_id: ${FEISHU_APP_ID}
+        app_secret: ${FEISHU_APP_SECRET}
+        domain: feishu
+        allow_from: ""
+
+    - name: qq
+      enabled: false
+      options:
+        ws_url: ws://127.0.0.1:3001
+        token: ${QQ_ONEBOT_TOKEN}
+        allow_from: ""
+```
+
+Telegram、飞书/Lark、企业微信、微信个人号、QQ、QQ 官方机器人、钉钉、Slack、Discord、LINE、微博等完整示例见 `config.example.yaml`。
+
+微信个人号通常需要先扫码接入：
+
+```bash
+sm im weixin setup
+```
+
+该命令会在终端打印二维码，等待手机确认登录，打印 token 和账号信息后退出。把打印出的值填到 `im.platforms` 中的 `weixin` 配置后，再运行 `sm im serve`。
+
 ## 工具列表
 
 | 工具 | 说明 |
@@ -258,8 +305,8 @@ superman/
 │   │   ├── prompt/system.txt        # 系统提示词
 │   │   └── toolsets.go              # Skill + MCP toolset 构建
 │   ├── config/                      # YAML + 环境变量配置 (viper)
-│   ├── cli/                         # Cobra CLI 命令 (run, reflect, configure, toolsets, sessions, runtime)
-│   ├── tui/                         # Bubble Tea v2 TUI
+│   ├── cli/                         # Cobra CLI 命令 (run, reflect, im, configure, toolsets, sessions, runtime)
+│   ├── tui/                         # Terminal UI
 │   │   ├── tui.go                   # 兼容 wrapper
 │   │   ├── app/                     # Model、runtime、sessions、commands、dialogs、layout
 │   │   ├── components/              # Chat、input、toolbar、sidebar renderers
@@ -269,6 +316,7 @@ superman/
 │   ├── session/                     # 持久 SessionService：SQLite + compact log、file tracking、references
 │   ├── store/                       # GORM/SQLite 持久化模型与读写
 │   ├── runtime/                     # 事件驱动 runtime 与 audit logging
+│   ├── im/                          # 即时通信接入
 │   ├── plugin/                      # 插件注册中心 + 内建插件
 │   ├── hook/                        # Hook 管理器 + 脚本执行器
 │   ├── reflect/                     # 自主空闲监听 + 调度器
@@ -288,7 +336,7 @@ superman/
 ```
 ~/.sm/                                    # workspace（默认: $HOME/.sm）
 ├── config.yaml                           # 用户配置（由 `sm configure` 创建）
-├── tui.log                               # TUI runtime 日志（重定向，避免干扰界面）
+├── tui.log                               # 终端界面 runtime 日志（重定向，避免干扰界面）
 ├── state.db                              # SQLite session/message 元数据与完整消息
 ├── sessions/                             # 精简会话日志与 snapshots
 │   ├── <id>.log                          # LLM evolution projection

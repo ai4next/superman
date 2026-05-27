@@ -73,7 +73,7 @@ func TestExecutorRunPersistsReferencesAndAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, plugins, err := supermanagent.New(fakeLLM{}, cfg, nil, svc, "", nil, nil, nil)
+	a, plugins, err := supermanagent.New(fakeLLM{}, cfg, nil, svc, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestIdleWatcherAndSchedulerUseExecutor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, plugins, err := supermanagent.New(fakeLLM{}, cfg, nil, svc, "", nil, nil, nil)
+	a, plugins, err := supermanagent.New(fakeLLM{}, cfg, nil, svc, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

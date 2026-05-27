@@ -67,7 +67,7 @@ var runCmd = &cobra.Command{
 				adkPlugins = append(adkPlugins, p)
 			}
 		}
-		fmt.Println(len(adkPlugins))
+
 		r, err := runner.New(runner.Config{
 			Agent:             a,
 			AppName:           cfg.Session.AppName,
