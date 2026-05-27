@@ -18,8 +18,8 @@ General-purpose autonomous AI agent. Multi-model support, 6 built-in tools, flat
 ## Quick Start
 
 ```bash
-# Copy and edit config
-cp config.example.yaml config.yaml
+# Create and edit config
+go run . init
 
 # Set your API key
 export OPENAI_API_KEY=sk-...
@@ -56,6 +56,7 @@ go run . run "What's in this directory?"
 | `sm run -p "hello"` | Run with `--prompt` flag |
 | `sm reflect` | Start autonomous idle-watch + scheduler mode |
 | `sm im serve` | Run the instant-messaging integration server |
+| `sm init` | Create `config.yaml` from the embedded example template |
 | `sm configure` | Show or initialize configuration |
 | `sm toolsets` | List configured ADK Skill and MCP toolsets |
 | `sm sessions list` | List persistent sessions |
@@ -265,8 +266,8 @@ superman/
 │   │   ├── context.go               # Context builder for agent runs
 │   │   ├── prompt/system.txt        # System prompt
 │   │   └── toolsets.go              # Skill + MCP toolset construction
-│   ├── config/                      # YAML + env config (viper)
-│   ├── cli/                         # Cobra CLI commands (run, reflect, im, configure, toolsets, sessions, runtime)
+│   ├── config/                      # YAML + env config (viper), embedded config.example.yaml
+│   ├── cli/                         # Cobra CLI commands (init, run, reflect, im, configure, toolsets, sessions, runtime)
 │   ├── tui/                         # Terminal UI
 │   │   ├── tui.go                   # Compatibility wrapper
 │   │   ├── app/                     # Model, runtime, sessions, commands, dialogs, layout
@@ -283,7 +284,7 @@ superman/
 │   └── expert/                      # Expert registry with Spec definitions
 ├── hooks/                            # Hook scripts (convention-based, 11 event dirs)
 ├── skills/                           # Skill definitions (ADK skilltoolset)
-├── config.example.yaml
+├── config.example.yaml              # Symlink to internal/config/config.example.yaml
 ├── config/tasks/                    # Sample scheduler task definitions
 ├── data/
 │   └── sessions/                    # Session history
@@ -297,7 +298,7 @@ All runtime data is stored under `workspace` in `config.yaml`. If omitted, it de
 
 ```
 ~/.sm/                                    # workspace (default: $HOME/.sm)
-├── config.yaml                           # User configuration (created by `sm configure`)
+├── config.yaml                           # User configuration (created by `sm init` or `sm configure`)
 ├── tui.log                               # Terminal UI runtime log (redirected for display safety)
 ├── hooks/                                # Hook event scripts (11 lifecycle events)
 ├── skills/                               # Skill definitions (SKILL.md)

@@ -18,8 +18,8 @@
 ## 快速开始
 
 ```bash
-# 复制并编辑配置
-cp config.example.yaml config.yaml
+# 创建并编辑配置
+go run . init
 
 # 设置 API Key
 export OPENAI_API_KEY=sk-...
@@ -56,6 +56,7 @@ go run . run "这个目录里有什么？"
 | `sm run -p "hello"` | 使用 `--prompt` flag 执行 |
 | `sm reflect` | 启动自主空闲监听 + 调度模式 |
 | `sm im serve` | 启动即时通信接入 server |
+| `sm init` | 从嵌入的示例模板创建 `config.yaml` |
 | `sm configure` | 查看或初始化配置 |
 | `sm toolsets` | 列出已配置的 ADK Skill 和 MCP toolsets |
 | `sm sessions list` | 列出持久会话 |
@@ -304,8 +305,8 @@ superman/
 │   │   ├── context.go               # Agent run 上下文构建器
 │   │   ├── prompt/system.txt        # 系统提示词
 │   │   └── toolsets.go              # Skill + MCP toolset 构建
-│   ├── config/                      # YAML + 环境变量配置 (viper)
-│   ├── cli/                         # Cobra CLI 命令 (run, reflect, im, configure, toolsets, sessions, runtime)
+│   ├── config/                      # YAML + 环境变量配置 (viper)，内嵌 config.example.yaml
+│   ├── cli/                         # Cobra CLI 命令 (init, run, reflect, im, configure, toolsets, sessions, runtime)
 │   ├── tui/                         # Terminal UI
 │   │   ├── tui.go                   # 兼容 wrapper
 │   │   ├── app/                     # Model、runtime、sessions、commands、dialogs、layout
@@ -323,7 +324,7 @@ superman/
 │   └── expert/                      # 专家注册中心与 Spec 定义
 ├── hooks/                            # Hook 脚本目录（约定式，11 个事件子目录）
 ├── skills/                           # Skill 定义目录（ADK skilltoolset）
-├── config.example.yaml
+├── config.example.yaml              # 指向 internal/config/config.example.yaml 的符号链接
 ├── config/tasks/                    # 调度任务定义示例
 ├── go.mod
 └── go.sum
@@ -335,7 +336,7 @@ superman/
 
 ```
 ~/.sm/                                    # workspace（默认: $HOME/.sm）
-├── config.yaml                           # 用户配置（由 `sm configure` 创建）
+├── config.yaml                           # 用户配置（由 `sm init` 或 `sm configure` 创建）
 ├── tui.log                               # 终端界面 runtime 日志（重定向，避免干扰界面）
 ├── state.db                              # SQLite session/message 元数据与完整消息
 ├── sessions/                             # 精简会话日志与 snapshots

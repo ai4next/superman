@@ -55,6 +55,7 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.PersistentFlags().String("config", "", "path to config file (default: ./config.yaml)")
+	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(configureCmd)
 	rootCmd.AddCommand(reflectCmd)

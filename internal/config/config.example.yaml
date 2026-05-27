@@ -1,0 +1,218 @@
+workspace: ${HOME}/.sm
+
+model:
+  provider: openai          # gemini | openai | deepseek | claude | ollama
+  name: gpt-4o
+  base_url: https://api.openai.com/v1
+  api_key: ${OPENAI_API_KEY}
+
+server:
+  addr: 127.0.0.1:8080
+
+tools:
+  code_run:
+    enabled: true
+    timeout: 30s
+    allowed_languages: [python, bash, sh]
+  read:
+    enabled: true
+    max_size: 10485760       # 10MB
+  write:
+    enabled: true
+    max_size: 10485760       # 10MB
+  patch:
+    enabled: true
+  ask_user:
+    enabled: true
+
+# Memory index limits
+memory:
+  l1:
+    max_index_items: 50
+    max_sections: 100
+  l2:
+    max_index_items: 50
+
+# Skill system — multiple paths supported
+skills:
+  enabled: true
+  paths:
+    - ${HOME}/.sm/skills
+    - ./skills
+
+# MCP server integration
+mcp:
+  servers:
+    - name: my-server
+      enabled: true
+      command: npx
+      args: [-y, @modelcontextprotocol/server-filesystem, /tmp]
+      tools: []                 # empty = all tools; specify names to filter
+
+# Session management
+session:
+  app_name: superman
+  max_turns: 75
+  archive_interval: 6h
+  session_ttl: 48h
+  loop_detection:
+    enabled: true
+    window_size: 10
+    max_repeats: 5
+
+# Autonomous reflection
+reflect:
+  autonomous:
+    idle_timeout: 30m
+  scheduler:
+    tasks_dir: ./config/tasks
+
+# Expert cultivation/delegation
+expert:
+  enabled: true
+  max_count: 10
+
+# Instant-messaging server.
+# Platform options are passed to Superman IM adapters.
+im:
+  platforms:
+    # Telegram Bot API
+    - name: telegram
+      enabled: false
+      options:
+        token: ${TELEGRAM_BOT_TOKEN}
+        allow_from: ""          # comma-separated user ids; empty allows all
+        group_reply_all: false
+        share_session_in_channel: false
+
+    # Feishu/Lark bot, websocket mode when port is empty.
+    - name: feishu
+      enabled: false
+      options:
+        app_id: ${FEISHU_APP_ID}
+        app_secret: ${FEISHU_APP_SECRET}
+        domain: feishu          # feishu | lark
+        allow_from: ""
+        group_reply_all: false
+        share_session_in_channel: false
+        thread_isolation: false
+        progress_style: card
+        enable_feishu_card: true
+        # HTTP callback mode:
+        # port: "8088"
+        # callback_path: /webhook/feishu
+        # encrypt_key: ${FEISHU_ENCRYPT_KEY}
+
+    # WeCom / 企业微信. Webhook callback mode.
+    - name: wecom
+      enabled: false
+      options:
+        mode: callback
+        corp_id: ${WECOM_CORP_ID}
+        corp_secret: ${WECOM_CORP_SECRET}
+        agent_id: ${WECOM_AGENT_ID}
+        callback_token: ${WECOM_CALLBACK_TOKEN}
+        callback_aes_key: ${WECOM_CALLBACK_AES_KEY}
+        port: "8090"
+        callback_path: /webhook/wecom
+        allow_from: ""
+        enable_markdown: true
+
+    # WeCom / 企业微信. Stream/websocket bot mode.
+    - name: wecom
+      enabled: false
+      options:
+        mode: websocket
+        bot_id: ${WECOM_BOT_ID}
+        bot_secret: ${WECOM_BOT_SECRET}
+        allow_from: ""
+
+    # Weixin personal account via ilink sidecar.
+    - name: weixin
+      enabled: false
+      options:
+        token: ${WEIXIN_TOKEN}
+        base_url: https://ilinkai.weixin.qq.com
+        cdn_base_url: https://ilinkai.weixin.qq.com
+        account_id: default
+        state_dir: ${HOME}/.sm/weixin
+        long_poll_timeout_ms: 25000
+        allow_from: ""
+
+    # QQ via NapCat / OneBot websocket.
+    - name: qq
+      enabled: false
+      options:
+        ws_url: ws://127.0.0.1:3001
+        token: ${QQ_ONEBOT_TOKEN}
+        allow_from: ""
+        share_session_in_channel: false
+
+    # QQ official bot.
+    - name: qqbot
+      enabled: false
+      options:
+        app_id: ${QQBOT_APP_ID}
+        app_secret: ${QQBOT_APP_SECRET}
+        sandbox: false
+        allow_from: ""
+        share_session_in_channel: false
+        markdown_support: true
+        # intents: 1073741827
+
+    # DingTalk stream bot.
+    - name: dingtalk
+      enabled: false
+      options:
+        client_id: ${DINGTALK_CLIENT_ID}
+        client_secret: ${DINGTALK_CLIENT_SECRET}
+        robot_code: ${DINGTALK_ROBOT_CODE}
+        agent_id: 0
+        allow_from: ""
+        share_session_in_channel: false
+
+    # Slack Socket Mode.
+    - name: slack
+      enabled: false
+      options:
+        bot_token: ${SLACK_BOT_TOKEN}
+        app_token: ${SLACK_APP_TOKEN}
+        allow_from: ""
+        share_session_in_channel: false
+
+    # Discord bot.
+    - name: discord
+      enabled: false
+      options:
+        token: ${DISCORD_BOT_TOKEN}
+        guild_id: ${DISCORD_GUILD_ID}
+        allow_from: ""
+        group_reply_all: false
+        share_session_in_channel: false
+        thread_isolation: false
+        progress_style: compact
+
+    # LINE Messaging API callback server.
+    - name: line
+      enabled: false
+      options:
+        channel_secret: ${LINE_CHANNEL_SECRET}
+        channel_token: ${LINE_CHANNEL_TOKEN}
+        port: "8091"
+        callback_path: /webhook/line
+        allow_from: ""
+
+    # Weibo private-message websocket.
+    - name: weibo
+      enabled: false
+      options:
+        name: weibo
+        app_id: ${WEIBO_APP_ID}
+        app_secret: ${WEIBO_APP_SECRET}
+        token_endpoint: https://api.weibo.com/oauth2/access_token
+        ws_endpoint: wss://api.weibo.com/2/direct_messages/ws
+        allow_from: ""
+
+plugins:
+  - name: session_reaper
+    enabled: true

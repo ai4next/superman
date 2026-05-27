@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/ai4next/superman/internal/config"
 	"github.com/spf13/cobra"
 
 	"github.com/ai4next/superman/internal/global"
@@ -28,20 +29,15 @@ var configureCmd = &cobra.Command{
 
 		// If no config.yaml exists, offer to create one
 		if _, err := os.Stat(configPath); os.IsNotExist(err) {
-			examplePath := "config.example.yaml"
-			if _, err := os.Stat(examplePath); err == nil {
-				data, err := os.ReadFile(examplePath)
-				if err != nil {
-					return fmt.Errorf("read example config: %w", err)
-				}
-				if err := os.WriteFile(configPath, data, 0644); err != nil {
-					return fmt.Errorf("write config.yaml: %w", err)
-				}
-				fmt.Printf("Created %s from %s\n", configPath, examplePath)
-				fmt.Println("Edit it to set your API key and preferences.")
-			} else {
-				return fmt.Errorf("no config.example.yaml found at %s", filepath.Dir(examplePath))
+			data := config.ExampleYAML()
+			if data == "" {
+				return fmt.Errorf("embedded config.example.yaml is empty")
 			}
+			if err := os.WriteFile(configPath, []byte(data), 0644); err != nil {
+				return fmt.Errorf("write config.yaml: %w", err)
+			}
+			fmt.Printf("Created %s from embedded config.example.yaml\n", configPath)
+			fmt.Println("Edit it to set your API key and preferences.")
 		} else {
 			fmt.Printf("Config file exists at %s\n", configPath)
 		}
