@@ -47,6 +47,7 @@ type EvolutionSignal struct {
 	UserID    string
 	AgentName string
 	Role      string
+	RootDir   string
 }
 
 // NewManager scans the base directory for hook subdirectories and

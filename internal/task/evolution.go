@@ -1,124 +1,108 @@
 package task
 
 import (
-	"bytes"
 	"context"
-	_ "embed"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
-	"text/template"
-	"time"
 
 	"github.com/pelletier/go-toml/v2"
 	adkagent "google.golang.org/adk/agent"
-	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/model"
 	"google.golang.org/adk/runner"
 	adksession "google.golang.org/adk/session"
 	"google.golang.org/genai"
 
+	supermanagent "github.com/ai4next/superman/internal/agent"
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/global"
 	"github.com/ai4next/superman/internal/hook"
 	"github.com/ai4next/superman/internal/memory"
+	"github.com/ai4next/superman/internal/prompt"
 	supermanruntime "github.com/ai4next/superman/internal/runtime"
-	"github.com/ai4next/superman/internal/tool"
+	supermansession "github.com/ai4next/superman/internal/session"
 )
 
-//go:embed evolution_prompt.txt
-var evolutionPrompt string
-
-// evolutionPromptData is the template data for evolution_prompt.txt.
+// evolutionPromptData is the template data for the runtime evolution prompt.
 type evolutionPromptData struct {
+	Role               string
+	AgentName          string
+	RootDir            string
 	L1Path             string
-	SopDir             string
-	L3Path             string
+	SOPDir             string
+	SoulPath           string
 	ExpertDir          string
-	SessionDir         string
+	SessionLogPath     string
 	CanAddL1Section    bool
 	CanDeleteL1Section bool
 	CanCreateExpert    bool
 	CultivateExperts   bool
+	CanEditSoul        bool
 }
 
 // Evolution processes completed-run signal and evolves long-lived runtime assets
 // from completed sessions using an ADK agent with read, write, patch,
 // and code_run tools.
 //
-// The agent handles memory consolidation (facts + SOPs) and can optionally cultivate experts:
-//   - L0 (runtime index) → l1.toml sections + l2/*.md names
-//   - L1 (facts)         → l1.toml
-//   - L2 (SOPs)          → l2/*.md
-//   - Session logs       → sessions/*.log
-//   - Expert souls       → {expertDir}/{name}/soul.md when expertDir is set
+// The agent handles memory consolidation (facts + SOPs) and can optionally
+// cultivate experts. The completed-run signal defines the root directory:
+//   - Superman → workspace memory/sessions and experts/{name}/soul.md
+//   - Expert   → experts/{expert_name}/memory and sessions under that expert
 type Evolution struct {
-	runner   *runner.Runner
-	signal   chan hook.EvolutionSignal
-	sessions adksession.Service
-	broker   *supermanruntime.Broker
+	supermanRunner *runner.Runner
+	expertRunner   *runner.Runner
+	signal         chan hook.EvolutionSignal
+	sessions       adksession.Service
+	broker         *supermanruntime.Broker
 }
 
 // NewEvolution creates an ADK agent for memory consolidation and optional expert cultivation.
 func NewEvolution(llm model.LLM, sessions adksession.Service) (*Evolution, error) {
-	deps := tool.Dependencies{
-		Config: evolutionToolConfig(),
+	memSvc := memory.NewInRoot(global.EvolutionMemoryDir())
+	if err := memSvc.LoadFromDisk(); err != nil {
+		return nil, fmt.Errorf("load evolution memory: %w", err)
+	}
+	sessionService, err := supermansession.NewServiceInRoot(global.EvolutionDir())
+	if err != nil {
+		return nil, fmt.Errorf("create evolution session service: %w", err)
 	}
 
-	tools := tool.RegisterAll(deps)
-
-	a, err := llmagent.New(llmagent.Config{
-		Name:  "superman-evolution",
-		Model: llm,
-		InstructionProvider: func(adkagent.ReadonlyContext) (string, error) {
-			return "You are the evolution agent. Follow the current user message for the session, role, and directories to process.", nil
-		},
-		Tools: tools,
-	})
+	supermanRunner, err := newEvolutionRunner(llm, memSvc, sessionService, supermanagent.SupermanEvolverName, supermanagent.NewEvolver)
 	if err != nil {
-		return nil, fmt.Errorf("create evolution agent: %w", err)
+		return nil, err
 	}
-
-	r, err := runner.New(runner.Config{
-		Agent:             a,
-		AppName:           "superman-evolution",
-		SessionService:    adksession.InMemoryService(),
-		AutoCreateSession: true,
-	})
+	expertRunner, err := newEvolutionRunner(llm, memSvc, sessionService, supermanagent.ExpertEvolverName, supermanagent.NewExpertEvolver)
 	if err != nil {
-		return nil, fmt.Errorf("create evolution runner: %w", err)
+		return nil, err
 	}
 
 	return &Evolution{
-		runner:   r,
-		signal:   make(chan hook.EvolutionSignal, 16),
-		sessions: sessions,
+		supermanRunner: supermanRunner,
+		expertRunner:   expertRunner,
+		signal:         make(chan hook.EvolutionSignal, 16),
+		sessions:       sessions,
 	}, nil
 }
 
-func evolutionToolConfig() *config.Config {
-	return &config.Config{
-		Tools: config.ToolsConfig{
-			Read: config.ReadConfig{
-				Enabled: true,
-				MaxSize: 10 * 1024 * 1024,
-			},
-			Write: config.WriteConfig{
-				Enabled: true,
-				MaxSize: 10 * 1024 * 1024,
-			},
-			Patch: config.PatchConfig{
-				Enabled: true,
-			},
-			CodeRun: config.CodeRunConfig{
-				Enabled:          true,
-				Timeout:          config.Duration(30 * time.Second),
-				AllowedLanguages: []string{"python", "bash"},
-			},
-		},
+type evolverFactory func(model.LLM, *config.Config, *memory.Service) (adkagent.Agent, error)
+
+func newEvolutionRunner(llm model.LLM, memSvc *memory.Service, sessionService adksession.Service, appName string, factory evolverFactory) (*runner.Runner, error) {
+	a, err := factory(llm, global.Config(), memSvc)
+	if err != nil {
+		return nil, err
 	}
+	r, err := runner.New(runner.Config{
+		Agent:             a,
+		AppName:           appName,
+		SessionService:    sessionService,
+		AutoCreateSession: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create %s runner: %w", appName, err)
+	}
+	return r, nil
 }
 
 func (e *Evolution) SetBroker(broker *supermanruntime.Broker) {
@@ -126,51 +110,85 @@ func (e *Evolution) SetBroker(broker *supermanruntime.Broker) {
 }
 
 func renderEvolutionPrompt(data evolutionPromptData) (string, error) {
-	tmpl, err := template.New("evolution").Parse(evolutionPrompt)
-	if err != nil {
-		return "", fmt.Errorf("parse prompt template: %w", err)
-	}
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("execute prompt template: %w", err)
-	}
-	return buf.String(), nil
+	return prompt.EvolutionRuntime(data)
 }
 
 func evolutionDataFromSignal(signal hook.EvolutionSignal) evolutionPromptData {
+	scope := evolutionScopeFromSignal(signal)
 	cfg := global.Config()
 	maxL1Sections := 100
 	if cfg != nil && cfg.Memory.L1.MaxSections > 0 {
 		maxL1Sections = cfg.Memory.L1.MaxSections
 	}
-	memoryDir := global.MemoryDir()
-	expertDir := ""
-	if signal.Role == "superman" {
-		expertDir = global.ExpertsDir()
-	}
 	canCreateExpert := false
-	if expertDir != "" {
+	if scope.ExpertDir != "" {
 		canCreateExpert = true
 		if cfg != nil && cfg.Expert.MaxCount > 0 {
-			canCreateExpert = countExpertDirs(expertDir) < cfg.Expert.MaxCount
+			canCreateExpert = countExpertDirs(scope.ExpertDir) < cfg.Expert.MaxCount
 		}
 	}
-	l1Path := global.MemoryL1Path(memoryDir)
-	sopDir := global.MemoryL2Dir(memoryDir)
-	sessionDir := global.SessionsDir()
-	sessionLogPath := global.SessionLogPath(signal.SessionID)
-	l1Sections := memory.CountL1Sections(l1Path)
+	l1Sections := memory.CountL1Sections(scope.L1Path)
 	return evolutionPromptData{
-		L1Path:             l1Path,
-		SopDir:             sopDir,
-		L3Path:             sessionLogPath,
-		ExpertDir:          expertDir,
-		SessionDir:         sessionDir,
+		Role:               scope.Role,
+		AgentName:          scope.AgentName,
+		RootDir:            scope.RootDir,
+		L1Path:             scope.L1Path,
+		SOPDir:             scope.SOPDir,
+		SoulPath:           scope.SoulPath,
+		ExpertDir:          scope.ExpertDir,
+		SessionLogPath:     scope.SessionLogPath,
 		CanAddL1Section:    l1Sections < maxL1Sections,
 		CanDeleteL1Section: l1Sections >= maxL1Sections,
 		CanCreateExpert:    canCreateExpert,
-		CultivateExperts:   expertDir != "",
+		CultivateExperts:   scope.ExpertDir != "",
+		CanEditSoul:        scope.CanEditSoul,
 	}
+}
+
+type evolutionScope struct {
+	Role           string
+	AgentName      string
+	RootDir        string
+	L1Path         string
+	SOPDir         string
+	SoulPath       string
+	ExpertDir      string
+	SessionLogPath string
+	CanEditSoul    bool
+}
+
+func evolutionScopeFromSignal(signal hook.EvolutionSignal) evolutionScope {
+	role := signal.Role
+	if role == "" {
+		role = "superman"
+	}
+	rootDir := signal.RootDir
+	if rootDir == "" {
+		if role == "expert" && signal.AgentName != "" {
+			rootDir = global.ExpertDir(signal.AgentName)
+		} else {
+			rootDir = global.Config().Workspace
+		}
+	}
+	agentName := signal.AgentName
+	if agentName == "" {
+		agentName = role
+	}
+	scope := evolutionScope{
+		Role:           role,
+		AgentName:      agentName,
+		RootDir:        rootDir,
+		L1Path:         global.MemoryL1Path(filepath.Join(rootDir, "memory")),
+		SOPDir:         global.MemoryL2Dir(filepath.Join(rootDir, "memory")),
+		SessionLogPath: filepath.Join(rootDir, "sessions", signal.SessionID+".log"),
+	}
+	if role == "superman" {
+		scope.ExpertDir = filepath.Join(rootDir, "experts")
+	} else if role == "expert" {
+		scope.SoulPath = filepath.Join(rootDir, "soul.md")
+		scope.CanEditSoul = true
+	}
+	return scope
 }
 
 func countExpertDirs(dir string) int {
@@ -215,29 +233,43 @@ func (e *Evolution) runAgent(ctx context.Context, signal hook.EvolutionSignal) e
 	if signal.SessionID == "" {
 		return fmt.Errorf("missing session ID")
 	}
-	if e.runner == nil {
-		return fmt.Errorf("missing evolution runner")
-	}
-
 	data := evolutionDataFromSignal(signal)
 	instruction, err := renderEvolutionPrompt(data)
 	if err != nil {
 		return fmt.Errorf("render prompt: %w", err)
 	}
 
-	log.Printf("[evolution] processing session %s", signal.SessionID)
+	scope := evolutionScopeFromSignal(signal)
+	run, err := e.runnerFor(scope)
+	if err != nil {
+		return err
+	}
+	log.Printf("[evolution] processing %s session %s", scope.Role, signal.SessionID)
 	msg := genai.NewContentFromText(instruction, genai.RoleUser)
-	for evt, err := range e.runner.Run(ctx, "evolution", "evolution-"+signal.SessionID, msg, adkagent.RunConfig{}) {
+	for evt, err := range run.Run(ctx, "evolution", "evolution-"+scope.Role+"-"+scope.AgentName+"-"+signal.SessionID, msg, adkagent.RunConfig{}) {
 		if err != nil {
 			return fmt.Errorf("agent run: %w", err)
 		}
 		_ = evt
 	}
-	log.Printf("[evolution] session %s done", signal.SessionID)
-	if err := validateEvolutionOutput(data); err != nil {
+	log.Printf("[evolution] %s session %s done", scope.Role, signal.SessionID)
+	if err := validateEvolutionOutput(scope); err != nil {
 		return fmt.Errorf("validate output: %w", err)
 	}
 	return nil
+}
+
+func (e *Evolution) runnerFor(scope evolutionScope) (*runner.Runner, error) {
+	if scope.Role == "expert" {
+		if e.expertRunner == nil {
+			return nil, fmt.Errorf("missing expert evolution runner")
+		}
+		return e.expertRunner, nil
+	}
+	if e.supermanRunner == nil {
+		return nil, fmt.Errorf("missing superman evolution runner")
+	}
+	return e.supermanRunner, nil
 }
 
 func (e *Evolution) publish(event supermanruntime.Event) {
@@ -246,11 +278,11 @@ func (e *Evolution) publish(event supermanruntime.Event) {
 	}
 }
 
-func validateEvolutionOutput(data evolutionPromptData) error {
-	if err := validateL1TOML(data.L1Path); err != nil {
+func validateEvolutionOutput(scope evolutionScope) error {
+	if err := validateL1TOML(scope.L1Path); err != nil {
 		return err
 	}
-	if err := validateSOPDir(data.SopDir); err != nil {
+	if err := validateSOPDir(scope.SOPDir); err != nil {
 		return err
 	}
 	return nil

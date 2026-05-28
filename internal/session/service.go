@@ -22,25 +22,36 @@ import (
 )
 
 type Service struct {
-	mu        sync.RWMutex
-	db        *persiststore.DB
-	sessions  map[string]*storedSession
-	appState  map[string]map[string]any
-	userState map[string]map[string]map[string]any
-	subs      map[chan Event[Message]]struct{}
+	mu         sync.RWMutex
+	db         *persiststore.DB
+	rootDir    string
+	sessionDir string
+	sessions   map[string]*storedSession
+	appState   map[string]map[string]any
+	userState  map[string]map[string]map[string]any
+	subs       map[chan Event[Message]]struct{}
 }
 
 func NewService() (adksession.Service, error) {
-	s := &Service{
-		sessions:  make(map[string]*storedSession),
-		appState:  make(map[string]map[string]any),
-		userState: make(map[string]map[string]map[string]any),
-		subs:      make(map[chan Event[Message]]struct{}),
+	return NewServiceInRoot("")
+}
+
+func NewServiceInRoot(rootDir string) (adksession.Service, error) {
+	if rootDir == "" {
+		rootDir = global.Config().Workspace
 	}
-	if err := os.MkdirAll(global.SessionsDir(), 0755); err != nil {
+	s := &Service{
+		rootDir:    rootDir,
+		sessionDir: filepath.Join(rootDir, "sessions"),
+		sessions:   make(map[string]*storedSession),
+		appState:   make(map[string]map[string]any),
+		userState:  make(map[string]map[string]map[string]any),
+		subs:       make(map[chan Event[Message]]struct{}),
+	}
+	if err := os.MkdirAll(s.sessionDir, 0755); err != nil {
 		return nil, fmt.Errorf("create session dir: %w", err)
 	}
-	db, err := persiststore.Open()
+	db, err := persiststore.OpenPath(filepath.Join(rootDir, "state.db"))
 	if err != nil {
 		return nil, err
 	}
@@ -49,6 +60,10 @@ func NewService() (adksession.Service, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+func (s *Service) sessionLogPath(sessionID string) string {
+	return filepath.Join(s.sessionDir, sessionID+".log")
 }
 
 func (s *Service) Create(ctx context.Context, req *adksession.CreateRequest) (*adksession.CreateResponse, error) {
@@ -152,7 +167,7 @@ func (s *Service) Delete(ctx context.Context, req *adksession.DeleteRequest) err
 		}
 	}
 	delete(s.sessions, key)
-	path := global.SessionLogPath(sessionID)
+	path := s.sessionLogPath(sessionID)
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -453,7 +468,7 @@ func (s *Service) FileSnapshotContent(snapshot FileSnapshot) (string, bool, erro
 func (s *Service) StorageStats() (StorageStats, error) {
 	s.mu.RLock()
 	sessionRefs := s.referencedSnapshotHashesLocked()
-	stats := StorageStats{RootDir: global.SessionsDir()}
+	stats := StorageStats{RootDir: s.sessionDir}
 	for _, stored := range s.sessions {
 		stats.Sessions++
 		stats.Messages += len(stored.Messages)
@@ -461,7 +476,7 @@ func (s *Service) StorageStats() (StorageStats, error) {
 		stats.FileRevisions += len(stored.FileRevisions)
 		stats.PromptQueue += len(stored.PromptQueue)
 		stats.References += len(stored.References)
-		if info, err := os.Stat(global.SessionLogPath(stored.SessionID)); err == nil {
+		if info, err := os.Stat(s.sessionLogPath(stored.SessionID)); err == nil {
 			stats.SessionBytes += info.Size()
 		} else if !os.IsNotExist(err) {
 			s.mu.RUnlock()
@@ -907,7 +922,7 @@ func (s *Service) load() error {
 		}
 		return s.loadFromDB()
 	}
-	entries, err := os.ReadDir(global.SessionsDir())
+	entries, err := os.ReadDir(s.sessionDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -918,7 +933,7 @@ func (s *Service) load() error {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(global.SessionsDir(), entry.Name()))
+		data, err := os.ReadFile(filepath.Join(s.sessionDir, entry.Name()))
 		if err != nil {
 			return err
 		}
@@ -1072,7 +1087,7 @@ func (s *Service) loadLegacySessionSidecar(stored *storedSession) error {
 }
 
 func (s *Service) loadLegacySessionJSON(stored *storedSession) error {
-	path := filepath.Join(global.SessionsDir(), stored.SessionID+".json")
+	path := filepath.Join(s.sessionDir, stored.SessionID+".json")
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil
@@ -1096,7 +1111,7 @@ func (s *Service) loadLegacySessionJSON(stored *storedSession) error {
 }
 
 func (s *Service) loadLegacySessionJSONL(stored *storedSession) error {
-	path := filepath.Join(global.SessionsDir(), stored.SessionID+".jsonl")
+	path := filepath.Join(s.sessionDir, stored.SessionID+".jsonl")
 	file, err := os.Open(path)
 	if os.IsNotExist(err) {
 		return nil
@@ -1184,7 +1199,7 @@ func sessionFilesMap(files []SessionFile) map[string]SessionFile {
 }
 
 func (s *Service) migrateLegacySessions() error {
-	entries, err := os.ReadDir(global.SessionsDir())
+	entries, err := os.ReadDir(s.sessionDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -1195,7 +1210,7 @@ func (s *Service) migrateLegacySessions() error {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		path := filepath.Join(global.SessionsDir(), entry.Name())
+		path := filepath.Join(s.sessionDir, entry.Name())
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
@@ -1259,7 +1274,7 @@ func (s *Service) mergedStateLocked(stored *storedSession) map[string]any {
 }
 
 func (s *Service) persistLocked(stored *storedSession) error {
-	if err := os.MkdirAll(global.SessionsDir(), 0755); err != nil {
+	if err := os.MkdirAll(s.sessionDir, 0755); err != nil {
 		return err
 	}
 	if s.db != nil {
@@ -1274,7 +1289,7 @@ func (s *Service) persistLocked(stored *storedSession) error {
 		}
 	}
 	if s.db != nil {
-		return s.db.WriteSessionLog(stored.SessionID, logMessages(stored.Messages))
+		return s.db.WriteSessionLogPath(s.sessionLogPath(stored.SessionID), logMessages(stored.Messages))
 	}
 	return nil
 }

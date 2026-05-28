@@ -5,7 +5,7 @@
 
 通用自治 AI Agent。支持多模型、6 个内建工具、扁平文件记忆、专家委托、MCP Server 集成、即时通信软件接入、持久会话管理，以及终端界面。
 
-## 设计哲学
+## 💡 设计哲学
 
 - **路由胜于膨胀。** “一个 Agent 统治一切”是幻想。专家是窄领域子 Agent，主 Agent 负责路由。
 
@@ -15,7 +15,7 @@
 
 ---
 
-## 快速开始
+## 🚀 快速开始
 
 在 Linux 或 macOS 上安装最新发布版：
 
@@ -49,7 +49,7 @@ sm run "这个目录里有什么？"
 VERSION=v0.0.1 INSTALL_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://raw.githubusercontent.com/ai4next/superman/main/install.sh)"
 ```
 
-## 功能特性
+## ✨ 功能特性
 
 - **多模型支持** — Gemini (Vertex AI)、OpenAI、DeepSeek、Claude、Ollama，以及任何兼容 OpenAI 的 API
 - **6 个内建工具** — 代码执行、文件读写/补丁、用户交互、专家委托
@@ -57,14 +57,14 @@ VERSION=v0.0.1 INSTALL_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://raw.gi
 - **即时通信软件接入** — 以常驻 server 方式接入 Telegram、飞书/Lark、企业微信、微信个人号、QQ、钉钉、Slack、Discord、LINE、微博等平台
 - **持久会话** — SQLite-backed session/message store，配套精简 `U/A/T/O` 进化日志，支持自动压缩、文件 revision tracking、session 导入导出
 - **运行时审计** — 工具调用、文本增量、错误、进化等事件流式写入可查询 JSONL audit log
-- **扁平文件记忆** — 运行时索引、全局事实、SOP 文件，以及精简会话日志
-- **专家委托** — 将任务分派给拥有独立记忆的专家子 Agent
+- **扁平文件记忆** — 全局事实（L1）和 SOP 文件（L2）直接存储在 workspace 中
+- **专家委托** — 将任务分派给拥有独立记忆和持久会话的专家子 Agent
 - **插件系统** — 统一 run/model/tool 日志与会话回收
 - **终端界面** — 暗色主题、Emacs 风格键绑定、侧边栏、Dialog 系统
 - **Hook 系统** — 11 种生命周期事件钩子（run/tool/model 等前后），通过 JSON stdin/stdout 协议执行外部脚本
 - **Skill 系统** — 基于文件系统的技能自动加载（ADK skilltoolset），兼容 Claude Code `SKILL.md` 格式，支持多个 skill path
 
-## 命令
+## ⌨️ 命令
 
 | 命令 | 说明 |
 |------|------|
@@ -96,7 +96,7 @@ VERSION=v0.0.1 INSTALL_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://raw.gi
 | `sm runtime events` | 列出 runtime audit events |
 | `sm runtime summary` | 汇总 runtime audit events |
 
-## 配置
+## ⚙️ 配置
 
 完整配置见 `config.example.yaml`。关键配置如下：
 
@@ -182,6 +182,8 @@ plugins:
     enabled: true
 ```
 
+`model.headers` 是可选配置，会随每次模型请求一起发送，适合接入需要自定义请求头的 OpenAI-compatible 网关。
+
 环境变量可以覆盖配置：`SUPERMAN_MODEL_PROVIDER=openai`、`SUPERMAN_MODEL_API_KEY=sk-...` 等。
 
 ### 即时通信接入
@@ -229,7 +231,7 @@ sm im weixin setup
 
 该命令会在终端打印二维码，等待手机确认登录，打印 token 和账号信息后退出。把打印出的值填到 `im.platforms` 中的 `weixin` 配置后，再运行 `sm im serve`。
 
-## 工具列表
+## 🛠️ 工具列表
 
 | 工具 | 说明 |
 |------|------|
@@ -240,7 +242,9 @@ sm im weixin setup
 | `ask_user` | 中断执行并向用户提问 |
 | `delegate_to_expert` | 将任务委托给专家独立执行 |
 
-## Hooks & Skills
+`delegate_to_expert` 会在每次调用模型前动态判断，只有启用专家委托且至少存在一个专家时才会加载。专家存储在 `experts/{expert_name}` 目录下，目录名就是专家名，`soul.md` 是专家的系统提示词。
+
+## 🔌 Hooks & Skills
 
 ### Hooks
 
@@ -314,7 +318,7 @@ mcp:
 
 使用 `sm toolsets` 可以确认当前配置的 servers 及其可用工具。
 
-## 项目结构
+## 📁 项目结构
 
 ```
 superman/
@@ -323,8 +327,10 @@ superman/
 │   ├── agent/
 │   │   ├── agent.go                 # Agent 工厂，注入 memory/SOP/context
 │   │   ├── context.go               # Agent run 上下文构建器
-│   │   ├── prompt/system.txt        # 系统提示词
-│   │   └── toolsets.go              # Skill + MCP toolset 构建
+│   │   ├── tool.go                  # 动态内建工具/toolset 组装
+│   │   └── evolver.go               # 进化 Agent 工厂
+│   ├── prompt/                      # 内嵌提示词模板
+│   │   └── template/                # Markdown 提示词模板
 │   ├── config/                      # YAML + 环境变量配置 (viper)，内嵌 config.example.yaml
 │   ├── cli/                         # Cobra CLI 命令 (init, run, reflect, im, configure, toolsets, sessions, runtime)
 │   ├── tui/                         # Terminal UI
@@ -341,7 +347,7 @@ superman/
 │   ├── plugin/                      # 插件注册中心 + 内建插件
 │   ├── hook/                        # Hook 管理器 + 脚本执行器
 │   ├── reflect/                     # 自主空闲监听 + 调度器
-│   └── expert/                      # 专家注册中心与 Spec 定义
+│   └── expert/                      # 基于目录的专家注册中心（`soul.md`）
 ├── hooks/                            # Hook 脚本目录（约定式，11 个事件子目录）
 ├── skills/                           # Skill 定义目录（ADK skilltoolset）
 ├── config.example.yaml              # 指向 internal/config/config.example.yaml 的符号链接
@@ -350,7 +356,7 @@ superman/
 └── go.sum
 ```
 
-## 运行时目录
+## 📂 运行时目录
 
 所有运行时数据都存储在 `workspace`（默认为 `~/.sm/`），首次启动时自动创建：
 
@@ -364,6 +370,13 @@ superman/
 │   └── snapshots/                        # 文件 revision snapshots
 ├── runtime/
 │   └── events.jsonl                      # runtime audit event log
+├── evolution/                            # Evolver 自己的运行时根目录
+│   ├── memory/                           # Evolver 自己的扁平文件记忆
+│   │   ├── l1.toml
+│   │   └── l2/
+│   ├── state.db                          # Evolver SQLite session/message 元数据
+│   └── sessions/
+│       └── <id>.log                      # Evolver 精简会话日志
 ├── hooks/                                # Hook 事件脚本（11 种生命周期事件）
 ├── skills/                               # Skill 定义（SKILL.md）
 ├── memory/                               # superman 扁平文件记忆
@@ -371,11 +384,14 @@ superman/
 │   ├── l2/                               # L2 SOP 文件（*.md）
 └── experts/
     └── {expert_name}/
-        ├── calls.jsonl                   # 专家 consult/delegate 调用日志
-        └── memory/                       # 专家独立记忆
+        ├── soul.md                       # 专家系统提示词；目录名就是专家名
+        ├── memory/                       # 专家独立记忆
+        ├── state.db                      # 专家 SQLite session/message 元数据
+        └── sessions/
+            └── <id>.log                  # 专家精简会话日志
 ```
 
-## 构建
+## 🏗️ 构建
 
 从 GitHub Releases 安装：
 
@@ -396,6 +412,23 @@ go build -o sm .
 
 需要 Go 1.26+。
 
-## 许可证
+## 📄 许可证
 
 MIT
+
+---
+
+## 📈 Star 历史
+
+<div align="center">
+
+<a href="https://star-history.com/#ai4next/superman&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ai4next/superman&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ai4next/superman&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=ai4next/superman&type=Date" />
+  </picture>
+</a>
+
+<br/><br/>
+</div>

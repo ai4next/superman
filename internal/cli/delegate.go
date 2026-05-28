@@ -15,6 +15,7 @@ import (
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/expert"
 	"github.com/ai4next/superman/internal/global"
+	"github.com/ai4next/superman/internal/hook"
 	"github.com/ai4next/superman/internal/memory"
 	supermanruntime "github.com/ai4next/superman/internal/runtime"
 	supermansession "github.com/ai4next/superman/internal/session"
@@ -22,12 +23,17 @@ import (
 
 // delegateService runs experts through the same agent builder as Superman.
 type delegateService struct {
-	llm      model.LLM
-	registry *expert.Registry
+	llm         model.LLM
+	registry    *expert.Registry
+	evolutionCh chan<- hook.EvolutionSignal
 }
 
-func newDelegateService(llm model.LLM, registry *expert.Registry) *delegateService {
-	return &delegateService{llm: llm, registry: registry}
+func newDelegateService(llm model.LLM, registry *expert.Registry, evolutionCh ...chan<- hook.EvolutionSignal) *delegateService {
+	ds := &delegateService{llm: llm, registry: registry}
+	if len(evolutionCh) > 0 {
+		ds.evolutionCh = evolutionCh[0]
+	}
+	return ds
 }
 
 func (ds *delegateService) RunDelegate(ctx context.Context, specName string, task string) (string, error) {
@@ -41,7 +47,7 @@ func (ds *delegateService) RunDelegate(ctx context.Context, specName string, tas
 	if err := memSvc.LoadFromDisk(); err != nil {
 		return "", fmt.Errorf("load expert memory: %w", err)
 	}
-	sessionService, err := supermansession.NewService()
+	sessionService, err := supermansession.NewServiceInRoot(global.ExpertDir(spec.Name))
 	if err != nil {
 		return "", fmt.Errorf("create expert session service: %w", err)
 	}
@@ -52,6 +58,13 @@ func (ds *delegateService) RunDelegate(ctx context.Context, specName string, tas
 		SessionService:    sessionService,
 		ContextMessages:   8,
 		EnableExpertTools: false,
+		EvolutionSignal: hook.EvolutionSignal{
+			UserID:    "expert-user",
+			AgentName: spec.Name,
+			Role:      "expert",
+			RootDir:   global.ExpertDir(spec.Name),
+		},
+		EvolutionCh: ds.evolutionCh,
 	})
 	if err != nil {
 		return "", fmt.Errorf("create expert agent: %w", err)

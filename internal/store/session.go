@@ -131,7 +131,10 @@ type referenceRow struct {
 func (referenceRow) TableName() string { return "session_reference" }
 
 func Open() (*DB, error) {
-	dbPath := global.StateDBPath()
+	return OpenPath(global.StateDBPath())
+}
+
+func OpenPath(dbPath string) (*DB, error) {
 	gormDB, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	if err != nil {
 		return nil, fmt.Errorf("open session state db: %w", err)

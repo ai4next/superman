@@ -11,6 +11,7 @@ import (
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/expert"
 	"github.com/ai4next/superman/internal/global"
+	"github.com/ai4next/superman/internal/hook"
 	supermanruntime "github.com/ai4next/superman/internal/runtime"
 	supermansession "github.com/ai4next/superman/internal/session"
 	adkmodel "google.golang.org/adk/model"
@@ -44,7 +45,7 @@ func TestBuildDelegateRunRequestUsesRuntimeFeatures(t *testing.T) {
 	}
 	global.SetConfig(cfg)
 	t.Cleanup(func() { global.SetConfig(nil) })
-	svc, err := supermansession.NewService()
+	svc, err := supermansession.NewServiceInRoot(global.ExpertDir("reviewer"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +95,8 @@ func TestDelegateRunPersistsSessionReferencesAndAudit(t *testing.T) {
 	if err := registry.LoadFromDisk(); err != nil {
 		t.Fatal(err)
 	}
-	ds := newDelegateService(delegateFakeLLM{}, registry)
+	evolutionCh := make(chan hook.EvolutionSignal, 1)
+	ds := newDelegateService(delegateFakeLLM{}, registry, evolutionCh)
 
 	result, err := ds.RunDelegate(context.Background(), "reviewer", `inspect @main.go using [session:past role:user] prior decision`)
 	if err != nil {
@@ -104,7 +106,7 @@ func TestDelegateRunPersistsSessionReferencesAndAudit(t *testing.T) {
 		t.Fatalf("result = %q", result)
 	}
 
-	svc, err := supermansession.NewService()
+	svc, err := supermansession.NewServiceInRoot(global.ExpertDir("reviewer"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,6 +125,9 @@ func TestDelegateRunPersistsSessionReferencesAndAudit(t *testing.T) {
 	}
 	if len(refs) != 1 || refs[0].SessionID != "past" || refs[0].Preview != "prior decision" {
 		t.Fatalf("refs = %#v", refs)
+	}
+	if _, err := os.Stat(filepath.Join(global.ExpertDir("reviewer"), "sessions", "1.log")); err != nil {
+		t.Fatalf("expert session log missing: %v", err)
 	}
 
 	events, err := supermanruntime.ReadAuditLog(filepath.Join(workspace, "runtime", "events.jsonl"), supermanruntime.AuditFilter{
@@ -144,5 +149,17 @@ func TestDelegateRunPersistsSessionReferencesAndAudit(t *testing.T) {
 	}
 	if !hasStarted || !hasText || !hasFinished {
 		t.Fatalf("audit events missing expected lifecycle: %#v", events)
+	}
+
+	select {
+	case signal := <-evolutionCh:
+		if signal.Role != "expert" || signal.AgentName != "reviewer" || signal.UserID != "expert-user" || signal.SessionID != "1" {
+			t.Fatalf("evolution signal = %#v", signal)
+		}
+		if signal.RootDir != global.ExpertDir("reviewer") {
+			t.Fatalf("signal RootDir = %q, want %q", signal.RootDir, global.ExpertDir("reviewer"))
+		}
+	default:
+		t.Fatal("expected expert evolution signal")
 	}
 }

@@ -140,8 +140,9 @@ func serveIM(ctx context.Context) error {
 	supermanruntime.NewAuditLogger(global.RuntimeEventsPath()).Subscribe(ctx, evolutionBroker)
 	go evolution.Loop(ctx)
 
-	expertRegistry, delegateRunner := loadIMExperts(llm)
-	a, adkPlugins, err := buildIMAgent(llm, cfg, memSvc, sessionService, expertRegistry, delegateRunner, evolution.SignalCh())
+	evolutionCh := evolution.SignalCh()
+	expertRegistry, delegateRunner := loadIMExperts(llm, evolutionCh)
+	a, adkPlugins, err := buildIMAgent(llm, cfg, memSvc, sessionService, expertRegistry, delegateRunner, evolutionCh)
 	if err != nil {
 		return err
 	}
@@ -170,7 +171,7 @@ func serveIM(ctx context.Context) error {
 	return client.Run(ctx)
 }
 
-func loadIMExperts(llm adkmodel.LLM) (*expert.Registry, tool.DelegateRunner) {
+func loadIMExperts(llm adkmodel.LLM, evolutionCh chan<- hook.EvolutionSignal) (*expert.Registry, tool.DelegateRunner) {
 	cfg := global.Config()
 	if !cfg.Expert.Enabled {
 		return nil, nil
@@ -180,7 +181,7 @@ func loadIMExperts(llm adkmodel.LLM) (*expert.Registry, tool.DelegateRunner) {
 		log.Printf("[expert] load warning: %v", err)
 	}
 	log.Printf("[expert] loaded %d experts", len(registry.List()))
-	return registry, newDelegateService(llm, registry)
+	return registry, newDelegateService(llm, registry, evolutionCh)
 }
 
 func buildIMAgent(llm adkmodel.LLM, cfg *config.Config, memSvc *memory.Service, sessionService adksession.Service, expertRegistry *expert.Registry, delegateRunner tool.DelegateRunner, evolutionCh chan<- hook.EvolutionSignal) (adkagent.Agent, []*adkplugin.Plugin, error) {

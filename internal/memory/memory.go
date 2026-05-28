@@ -21,6 +21,7 @@ import (
 type Service struct {
 	mu              sync.RWMutex
 	expertName      string
+	rootDir         string
 	maxL1IndexItems int
 	maxL2IndexItems int
 }
@@ -33,6 +34,13 @@ func New() *Service {
 // NewExpert creates an expert-scoped memory service.
 func NewExpert(name string) *Service {
 	return newService(name)
+}
+
+// NewInRoot creates a memory service rooted at an explicit memory directory.
+func NewInRoot(rootDir string) *Service {
+	s := newService("")
+	s.rootDir = rootDir
+	return s
 }
 
 func newService(expertName string) *Service {
@@ -60,6 +68,9 @@ func (s *Service) MemoryDir() string {
 	}
 	if s.expertName != "" {
 		return global.ExpertMemoryDir(s.expertName)
+	}
+	if s.rootDir != "" {
+		return s.rootDir
 	}
 	return global.MemoryDir()
 }

@@ -5,7 +5,7 @@
 
 General-purpose autonomous AI agent. Multi-model support, 6 built-in tools, flat-file memory, expert delegation, MCP server integration, instant-messaging integration, persistent session management, and a terminal UI.
 
-## Design Philosophy
+## 💡 Design Philosophy
 
 - **Route over bloat.** One agent to rule them all is a fantasy. Experts are narrow sub-agents. The main agent just routes.
 
@@ -15,7 +15,7 @@ General-purpose autonomous AI agent. Multi-model support, 6 built-in tools, flat
 
 ---
 
-## Quick Start
+## 🚀 Quick Start
 
 Install the latest release on Linux or macOS:
 
@@ -49,7 +49,7 @@ Install a specific release or use a user-writable directory:
 VERSION=v0.0.1 INSTALL_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://raw.githubusercontent.com/ai4next/superman/main/install.sh)"
 ```
 
-## Features
+## ✨ Features
 
 - **Multi-model support** — Gemini (Vertex AI), OpenAI, DeepSeek, Claude, Ollama, and any OpenAI-compatible API
 - **6 built-in tools** — code execution, file read/write/patch, user interaction, expert delegation
@@ -57,14 +57,14 @@ VERSION=v0.0.1 INSTALL_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://raw.gi
 - **Instant-messaging integration** — run a long-lived server that connects Superman to Telegram, Feishu/Lark, WeCom, Weixin, QQ, DingTalk, Slack, Discord, LINE, and Weibo
 - **Persistent sessions** — SQLite-backed session/message store with compact `U/A/T/O` evolution logs, automatic compaction, file revision tracking, and session export/import
 - **Runtime audit** — Events (tool calls, text delta, errors, evolutions) streamed to a queryable JSONL audit log
-- **Flat-file memory (L0-L3)** — runtime index (L0), global facts (L1), SOP files (L2), session archive (L3)
-- **Expert delegation** — dispatch tasks to expert sub-agents with isolated memory
+- **Flat-file memory** — global facts (L1) and SOP files (L2) stored directly in the workspace
+- **Expert delegation** — dispatch tasks to expert sub-agents with isolated memory and persistent sessions
 - **Plugin system** — unified run/model/tool logging and session reaper
 - **Terminal UI** — dark theme, Emacs-style keybindings, sidebar, and dialog system
 - **Hook system** — 11 lifecycle event hooks (before/after run, tool, model, etc.) with external script execution via JSON stdin/stdout protocol
 - **Skill system** — filesystem-based skills auto-loaded via ADK skilltoolset, compatible with Claude Code SKILL.md format, supports multiple skill paths
 
-## Commands
+## ⌨️ Commands
 
 | Command | Description |
 |---------|-------------|
@@ -96,7 +96,7 @@ VERSION=v0.0.1 INSTALL_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://raw.gi
 | `sm runtime events` | List runtime audit events |
 | `sm runtime summary` | Summarize runtime audit events |
 
-## Configuration
+## ⚙️ Configuration
 
 See `config.example.yaml` for all options. Key settings:
 
@@ -142,6 +142,8 @@ plugins:
   - name: logger
     enabled: true
 ```
+
+`model.headers` is optional and is forwarded with every model request, which is useful for custom OpenAI-compatible gateways.
 
 Environment variables override config: `SUPERMAN_MODEL_PROVIDER=openai`, `SUPERMAN_MODEL_API_KEY=sk-...`, etc.
 
@@ -190,7 +192,7 @@ sm im weixin setup
 
 The command prints a QR code in the terminal, waits for phone confirmation, prints the token and account values, then exits. Add the printed values to your `weixin` entry in `im.platforms` before running `sm im serve`.
 
-## Tools
+## 🛠️ Tools
 
 | Tool | Description |
 |------|-------------|
@@ -201,7 +203,9 @@ The command prints a QR code in the terminal, waits for phone confirmation, prin
 | `ask_user` | Interrupt to ask the user a question |
 | `delegate_to_expert` | Delegate a task to an expert for independent execution |
 
-## Hooks & Skills
+`delegate_to_expert` is loaded dynamically only when expert delegation is enabled and at least one expert is available. Experts are stored as directories under `experts/{expert_name}`; the directory name is the expert name and `soul.md` is the expert's system prompt.
+
+## 🔌 Hooks & Skills
 
 ### Hooks
 
@@ -275,7 +279,7 @@ mcp:
 
 Use `sm toolsets` to verify configured servers and their available tools.
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 superman/
@@ -284,8 +288,10 @@ superman/
 │   ├── agent/
 │   │   ├── agent.go                 # Agent factory with memory/SOP injection
 │   │   ├── context.go               # Context builder for agent runs
-│   │   ├── prompt/system.txt        # System prompt
-│   │   └── toolsets.go              # Skill + MCP toolset construction
+│   │   ├── tool.go                  # Dynamic built-in/toolset assembly
+│   │   └── evolver.go               # Evolution agent factory
+│   ├── prompt/                      # Embedded prompt templates
+│   │   └── template/                # Markdown prompt templates
 │   ├── config/                      # YAML + env config (viper), embedded config.example.yaml
 │   ├── cli/                         # Cobra CLI commands (init, run, reflect, im, configure, toolsets, sessions, runtime)
 │   ├── tui/                         # Terminal UI
@@ -294,14 +300,14 @@ superman/
 │   │   ├── components/              # Chat, input line, toolbar, sidebar renderers
 │   │   └── styles/                  # Dark theme, icons, color themes
 │   ├── model/                       # Multi-provider LLM factory
-│   ├── memory/                      # L0-L3 flat-file memory (rules, profile, SOP, sessions)
+│   ├── memory/                      # Flat-file memory (L1 global facts, L2 SOP files)
 │   ├── session/                     # Persistent session manager with JSONL store, file tracking, references
 │   ├── runtime/                     # Event-driven runtime with audit logging
 │   ├── im/                          # Instant-messaging integration
 │   ├── plugin/                      # Plugin registry + built-ins
 │   ├── hook/                        # Hook manager + script runner
 │   ├── reflect/                     # Autonomous idle watcher + scheduler
-│   └── expert/                      # Expert registry with Spec definitions
+│   └── expert/                      # Directory-backed expert registry (`soul.md`)
 ├── hooks/                            # Hook scripts (convention-based, 11 event dirs)
 ├── skills/                           # Skill definitions (ADK skilltoolset)
 ├── config.example.yaml              # Symlink to internal/config/config.example.yaml
@@ -312,7 +318,7 @@ superman/
 └── go.sum
 ```
 
-## Runtime Directory
+## 📂 Runtime Directory
 
 All runtime data is stored under `workspace` in `config.yaml`. If omitted, it defaults to `$HOME/.sm`. The directory is created on first run:
 
@@ -331,13 +337,23 @@ All runtime data is stored under `workspace` in `config.yaml`. If omitted, it de
 │   └── snapshots/                        # File revision snapshots
 ├── runtime/
 │   └── events.jsonl                      # Runtime audit event log
+├── evolution/                            # Evolver's own runtime root
+│   ├── memory/                           # Evolver's flat-file memory
+│   │   ├── l1.toml
+│   │   └── l2/
+│   ├── state.db                          # Evolver SQLite session/message metadata store
+│   └── sessions/
+│       └── <id>.log                      # Evolver compact session log
 └── experts/
     └── {expert_name}/
-        ├── calls.jsonl                   # Expert consult/delegate call log
-        └── memory/                       # Expert's isolated memory
+        ├── soul.md                       # Expert system prompt; directory name is the expert name
+        ├── memory/                       # Expert's isolated memory
+        ├── state.db                      # Expert SQLite session/message metadata store
+        └── sessions/
+            └── <id>.log                  # Expert compact session log
 ```
 
-## Build
+## 🏗️ Build
 
 Install from GitHub Releases:
 
@@ -358,6 +374,23 @@ go build -o sm .
 
 Requires Go 1.26+.
 
-## License
+## 📄 License
 
 MIT
+
+---
+
+## 📈 Star History
+
+<div align="center">
+
+<a href="https://star-history.com/#ai4next/superman&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ai4next/superman&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ai4next/superman&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=ai4next/superman&type=Date" />
+  </picture>
+</a>
+
+<br/><br/>
+</div>

@@ -88,7 +88,10 @@ func (d *DB) SaveMessages(sessionID int64, rows []Message) error {
 }
 
 func (d *DB) WriteSessionLog(sessionID string, messages []LogMessage) error {
-	path := global.SessionLogPath(safeName(sessionID))
+	return d.WriteSessionLogPath(global.SessionLogPath(safeName(sessionID)), messages)
+}
+
+func (d *DB) WriteSessionLogPath(path string, messages []LogMessage) error {
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, FormatSessionLog(messages), 0644); err != nil {
 		return err

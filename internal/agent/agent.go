@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	_ "embed"
 	"log"
 	"os"
 	"os/exec"
@@ -24,11 +23,9 @@ import (
 	"github.com/ai4next/superman/internal/expert"
 	"github.com/ai4next/superman/internal/hook"
 	"github.com/ai4next/superman/internal/memory"
+	"github.com/ai4next/superman/internal/prompt"
 	"github.com/ai4next/superman/internal/tool"
 )
-
-//go:embed system.txt
-var systemPrompt string
 
 // BuildConfig describes one concrete agent instance. Superman and experts use
 // this same builder so their runtime wiring stays consistent.
@@ -39,7 +36,6 @@ type BuildConfig struct {
 	MemoryService     *memory.Service
 	SessionService    adksession.Service
 	ContextMessages   int
-	SOPContent        string
 	ExpertRegistry    *expert.Registry
 	DelegateRunner    tool.DelegateRunner
 	EnableExpertTools bool
@@ -237,7 +233,7 @@ func firstNonEmpty(values ...string) string {
 func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, sessionSvc adksession.Service, expertRegistry *expert.Registry, delegateRunner tool.DelegateRunner, evolutionCh chan<- hook.EvolutionSignal) (adkagent.Agent, []*plugin.Plugin, error) {
 	return NewFromConfig(llm, cfg, BuildConfig{
 		Name:              "superman",
-		Instruction:       systemPrompt,
+		Instruction:       prompt.SupermanSystem(),
 		MemoryService:     memSvc,
 		SessionService:    sessionSvc,
 		ContextMessages:   12,

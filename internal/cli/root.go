@@ -22,6 +22,8 @@ func ensureDirs() error {
 		global.SkillsDir(),
 		global.HooksDir(),
 		global.ExpertsDir(),
+		global.EvolutionDir(),
+		global.EvolutionMemoryDir(),
 		global.MemoryDir(),
 		global.L2Dir(),
 		global.SessionsDir(),

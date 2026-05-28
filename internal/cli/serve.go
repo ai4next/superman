@@ -64,7 +64,7 @@ func RunServe(cmd *cobra.Command, args []string) error {
 		if err := expertRegistry.LoadFromDisk(); err != nil {
 			log.Printf("[expert] load warning: %v", err)
 		}
-		delegateRunner = newDelegateService(llm, expertRegistry)
+		delegateRunner = newDelegateService(llm, expertRegistry, evolutionCh)
 		log.Printf("[expert] loaded %d experts", len(expertRegistry.List()))
 	}
 

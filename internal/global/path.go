@@ -54,6 +54,14 @@ func RuntimeEventsPath() string {
 	return filepath.Join(RuntimeDir(), "events.jsonl")
 }
 
+func EvolutionDir() string {
+	return filepath.Join(Config().Workspace, "evolution")
+}
+
+func EvolutionMemoryDir() string {
+	return filepath.Join(EvolutionDir(), "memory")
+}
+
 func ExpertsDir() string {
 	return filepath.Join(Config().Workspace, "experts")
 }

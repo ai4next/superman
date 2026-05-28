@@ -51,12 +51,19 @@ func Load(configPath string) (*Config, error) {
 	// Expand ${VAR} references in api_key
 	cfg.Model.APIKey = os.ExpandEnv(cfg.Model.APIKey)
 	cfg.Model.Headers = v.GetStringMapString("model.headers")
+	expandModelHeaders(&cfg)
 	expandPaths(&cfg)
 	expandIMOptions(&cfg)
 
 	applyDefaults(&cfg, skillsEnabledSet, loopDetectionEnabledSet)
 	normalizePaths(&cfg)
 	return &cfg, nil
+}
+
+func expandModelHeaders(cfg *Config) {
+	for key, value := range cfg.Model.Headers {
+		cfg.Model.Headers[key] = os.ExpandEnv(value)
+	}
 }
 
 func expandIMOptions(cfg *Config) {
