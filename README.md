@@ -3,15 +3,19 @@
 
 ![Logo](assets/banner.png)
 
-General-purpose autonomous AI agent. Multi-model support, 6 built-in tools, flat-file memory, expert delegation, MCP server integration, instant-messaging integration, persistent session management, and a terminal UI.
+Self-evolving autonomous AI agent. Superman routes work across tools and expert sub-agents, persists sessions and flat-file memory, and uses layered agent/meta evolution to turn completed work into durable knowledge.
 
 ## 💡 Design Philosophy
 
-- **Route over bloat.** One agent to rule them all is a fantasy. Experts are narrow sub-agents. The main agent just routes.
+- **Collective over monolith.** A giant prompt is not intelligence; it is entropy with a logo. Superman stays small by coordinating tools and domain experts instead of pretending one context window can hold every skill.
 
-- **Background over blocking.** Archiving, analysis, optimization — nothing should make the user wait.
+- **Background over blocking.** The user should not pay latency for housekeeping. Archiving, memory consolidation, expert cultivation, and meta-evolution happen after the run, where they can improve the system without interrupting the work.
 
-- **Simple over complicated.** Break hard problems into small steps. Long context fails not because it's short, but because it's noisy. Clarity always wins.
+- **Evolution over accumulation.** Logs are not memory. Most history is noise unless it is compressed into facts, procedures, or sharper agents. Agent evolution improves Superman and experts; meta evolution improves only the evolution process. The loop learns, but it has walls.
+
+- **Boundaries over vibes.** Self-improvement without write boundaries is just automated drift. Superman memory, expert memory, expert souls, evolver memory, sessions, and audit logs are separate because ownership is what keeps learning from becoming corruption.
+
+- **Clarity over chaos.** Long context fails less from length than from contamination. The system prefers small files, explicit scopes, persistent sessions, and inspectable diffs because durable autonomy needs a filesystem, not a mystique.
 
 ---
 
@@ -59,6 +63,7 @@ VERSION=v0.0.1 INSTALL_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://raw.gi
 - **Runtime audit** — Events (tool calls, text delta, errors, evolutions) streamed to a queryable JSONL audit log
 - **Flat-file memory** — global facts (L1) and SOP files (L2) stored directly in the workspace
 - **Expert delegation** — dispatch tasks to expert sub-agents with isolated memory and persistent sessions
+- **Layered self-evolution** — agent evolver improves Superman/experts from completed sessions; meta evolver improves only the evolution process from evolver sessions
 - **Plugin system** — unified run/model/tool logging and session reaper
 - **Terminal UI** — dark theme, Emacs-style keybindings, sidebar, and dialog system
 - **Hook system** — 11 lifecycle event hooks (before/after run, tool, model, etc.) with external script execution via JSON stdin/stdout protocol
@@ -289,7 +294,7 @@ superman/
 │   │   ├── agent.go                 # Agent factory with memory/SOP injection
 │   │   ├── context.go               # Context builder for agent runs
 │   │   ├── tool.go                  # Dynamic built-in/toolset assembly
-│   │   └── evolver.go               # Evolution agent factory
+│   │   └── evolver.go               # Agent/meta evolution agent factories
 │   ├── prompt/                      # Embedded prompt templates
 │   │   └── template/                # Markdown prompt templates
 │   ├── config/                      # YAML + env config (viper), embedded config.example.yaml
@@ -337,13 +342,14 @@ All runtime data is stored under `workspace` in `config.yaml`. If omitted, it de
 │   └── snapshots/                        # File revision snapshots
 ├── runtime/
 │   └── events.jsonl                      # Runtime audit event log
-├── evolution/                            # Evolver's own runtime root
+├── evolution/                            # Agent evolver + meta evolver runtime root
 │   ├── memory/                           # Evolver's flat-file memory
 │   │   ├── l1.toml
 │   │   └── l2/
 │   ├── state.db                          # Evolver SQLite session/message metadata store
 │   └── sessions/
-│       └── <id>.log                      # Evolver compact session log
+│       ├── agent-evolution-<...>.log     # Agent evolution session log
+│       └── meta-evolution-<...>.log      # Meta evolution session log
 └── experts/
     └── {expert_name}/
         ├── soul.md                       # Expert system prompt; directory name is the expert name

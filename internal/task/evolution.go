@@ -35,6 +35,7 @@ type evolutionPromptData struct {
 	SoulPath           string
 	ExpertDir          string
 	SessionLogPath     string
+	MetaEvolution      bool
 	CanAddL1Section    bool
 	CanDeleteL1Section bool
 	CanCreateExpert    bool
@@ -53,6 +54,7 @@ type evolutionPromptData struct {
 type Evolution struct {
 	supermanRunner *runner.Runner
 	expertRunner   *runner.Runner
+	metaRunner     *runner.Runner
 	signal         chan hook.EvolutionSignal
 	sessions       adksession.Service
 	broker         *supermanruntime.Broker
@@ -77,10 +79,15 @@ func NewEvolution(llm model.LLM, sessions adksession.Service) (*Evolution, error
 	if err != nil {
 		return nil, err
 	}
+	metaRunner, err := newEvolutionRunner(llm, memSvc, sessionService, supermanagent.MetaEvolverName, supermanagent.NewMetaEvolver)
+	if err != nil {
+		return nil, err
+	}
 
 	return &Evolution{
 		supermanRunner: supermanRunner,
 		expertRunner:   expertRunner,
+		metaRunner:     metaRunner,
 		signal:         make(chan hook.EvolutionSignal, 16),
 		sessions:       sessions,
 	}, nil
@@ -114,7 +121,10 @@ func renderEvolutionPrompt(data evolutionPromptData) (string, error) {
 }
 
 func evolutionDataFromSignal(signal hook.EvolutionSignal) evolutionPromptData {
-	scope := evolutionScopeFromSignal(signal)
+	return evolutionDataFromScope(evolutionScopeFromSignal(signal))
+}
+
+func evolutionDataFromScope(scope evolutionScope) evolutionPromptData {
 	cfg := global.Config()
 	maxL1Sections := 100
 	if cfg != nil && cfg.Memory.L1.MaxSections > 0 {
@@ -137,6 +147,7 @@ func evolutionDataFromSignal(signal hook.EvolutionSignal) evolutionPromptData {
 		SoulPath:           scope.SoulPath,
 		ExpertDir:          scope.ExpertDir,
 		SessionLogPath:     scope.SessionLogPath,
+		MetaEvolution:      scope.MetaEvolution,
 		CanAddL1Section:    l1Sections < maxL1Sections,
 		CanDeleteL1Section: l1Sections >= maxL1Sections,
 		CanCreateExpert:    canCreateExpert,
@@ -155,6 +166,7 @@ type evolutionScope struct {
 	ExpertDir      string
 	SessionLogPath string
 	CanEditSoul    bool
+	MetaEvolution  bool
 }
 
 func evolutionScopeFromSignal(signal hook.EvolutionSignal) evolutionScope {
@@ -187,6 +199,8 @@ func evolutionScopeFromSignal(signal hook.EvolutionSignal) evolutionScope {
 	} else if role == "expert" {
 		scope.SoulPath = filepath.Join(rootDir, "soul.md")
 		scope.CanEditSoul = true
+	} else if role == "meta" {
+		scope.MetaEvolution = true
 	}
 	return scope
 }
@@ -246,7 +260,8 @@ func (e *Evolution) runAgent(ctx context.Context, signal hook.EvolutionSignal) e
 	}
 	log.Printf("[evolution] processing %s session %s", scope.Role, signal.SessionID)
 	msg := genai.NewContentFromText(instruction, genai.RoleUser)
-	for evt, err := range run.Run(ctx, "evolution", "evolution-"+scope.Role+"-"+scope.AgentName+"-"+signal.SessionID, msg, adkagent.RunConfig{}) {
+	evolutionSessionID := "agent-evolution-" + scope.Role + "-" + scope.AgentName + "-" + signal.SessionID
+	for evt, err := range run.Run(ctx, "evolution", evolutionSessionID, msg, adkagent.RunConfig{}) {
 		if err != nil {
 			return fmt.Errorf("agent run: %w", err)
 		}
@@ -256,10 +271,53 @@ func (e *Evolution) runAgent(ctx context.Context, signal hook.EvolutionSignal) e
 	if err := validateEvolutionOutput(scope); err != nil {
 		return fmt.Errorf("validate output: %w", err)
 	}
+	if err := e.runMetaEvolution(ctx, evolutionSessionID); err != nil {
+		return fmt.Errorf("meta evolution: %w", err)
+	}
+	return nil
+}
+
+func (e *Evolution) runMetaEvolution(ctx context.Context, agentEvolutionSessionID string) error {
+	if agentEvolutionSessionID == "" {
+		return fmt.Errorf("missing agent evolution session ID")
+	}
+	scope := evolutionScopeFromSignal(hook.EvolutionSignal{
+		SessionID: agentEvolutionSessionID,
+		AgentName: supermanagent.MetaEvolverName,
+		Role:      "meta",
+		RootDir:   global.EvolutionDir(),
+	})
+	data := evolutionDataFromScope(scope)
+	instruction, err := renderEvolutionPrompt(data)
+	if err != nil {
+		return fmt.Errorf("render prompt: %w", err)
+	}
+	run, err := e.runnerFor(scope)
+	if err != nil {
+		return err
+	}
+	log.Printf("[evolution] processing meta session %s", agentEvolutionSessionID)
+	msg := genai.NewContentFromText(instruction, genai.RoleUser)
+	for evt, err := range run.Run(ctx, "evolution", "meta-evolution-"+agentEvolutionSessionID, msg, adkagent.RunConfig{}) {
+		if err != nil {
+			return fmt.Errorf("agent run: %w", err)
+		}
+		_ = evt
+	}
+	log.Printf("[evolution] meta session %s done", agentEvolutionSessionID)
+	if err := validateEvolutionOutput(scope); err != nil {
+		return fmt.Errorf("validate output: %w", err)
+	}
 	return nil
 }
 
 func (e *Evolution) runnerFor(scope evolutionScope) (*runner.Runner, error) {
+	if scope.MetaEvolution || scope.Role == "meta" {
+		if e.metaRunner == nil {
+			return nil, fmt.Errorf("missing meta evolution runner")
+		}
+		return e.metaRunner, nil
+	}
 	if scope.Role == "expert" {
 		if e.expertRunner == nil {
 			return nil, fmt.Errorf("missing expert evolution runner")

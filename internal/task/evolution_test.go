@@ -75,6 +75,9 @@ func TestNewEvolutionCreatesPersistentEvolutionRoot(t *testing.T) {
 	if e.supermanRunner == nil || e.expertRunner == nil {
 		t.Fatalf("evolution runners were not initialized: %#v", e)
 	}
+	if e.metaRunner == nil {
+		t.Fatalf("meta evolution runner was not initialized: %#v", e)
+	}
 	for _, path := range []string{
 		filepath.Join(workspace, "evolution"),
 		filepath.Join(workspace, "evolution", "memory"),
@@ -86,6 +89,42 @@ func TestNewEvolutionCreatesPersistentEvolutionRoot(t *testing.T) {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("expected evolution path %s: %v", path, err)
 		}
+	}
+}
+
+func TestEvolutionDataFromMetaSignalUsesEvolutionScope(t *testing.T) {
+	workspace := t.TempDir()
+	global.SetConfig(&config.Config{Workspace: workspace})
+	t.Cleanup(func() { global.SetConfig(nil) })
+
+	data := evolutionDataFromSignal(hook.EvolutionSignal{
+		SessionID: "agent-evolution-superman-superman-1",
+		AgentName: "meta-evolver",
+		Role:      "meta",
+		RootDir:   filepath.Join(workspace, "evolution"),
+	})
+
+	if data.RootDir != filepath.Join(workspace, "evolution") {
+		t.Fatalf("RootDir = %q", data.RootDir)
+	}
+	if data.SessionLogPath != filepath.Join(workspace, "evolution", "sessions", "agent-evolution-superman-superman-1.log") {
+		t.Fatalf("SessionLogPath = %q", data.SessionLogPath)
+	}
+	if data.L1Path != filepath.Join(workspace, "evolution", "memory", "l1.toml") {
+		t.Fatalf("L1Path = %q", data.L1Path)
+	}
+	if data.SOPDir != filepath.Join(workspace, "evolution", "memory", "l2") {
+		t.Fatalf("SOPDir = %q", data.SOPDir)
+	}
+	if !data.MetaEvolution || data.CultivateExperts || data.CanEditSoul || data.ExpertDir != "" || data.SoulPath != "" {
+		t.Fatalf("meta scope flags = meta:%v cultivate:%v edit:%v expertDir:%q soul:%q", data.MetaEvolution, data.CultivateExperts, data.CanEditSoul, data.ExpertDir, data.SoulPath)
+	}
+	prompt, err := renderEvolutionPrompt(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prompt, "This is meta evolution") || !strings.Contains(prompt, "Do not trigger or request another meta-evolution pass") {
+		t.Fatalf("meta prompt missing boundary instructions: %q", prompt)
 	}
 }
 

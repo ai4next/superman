@@ -18,6 +18,7 @@ import (
 const (
 	SupermanEvolverName = "superman-evolver"
 	ExpertEvolverName   = "expert-evolver"
+	MetaEvolverName     = "meta-evolver"
 	EvolverName         = SupermanEvolverName
 )
 
@@ -27,6 +28,10 @@ func NewEvolver(llm model.LLM, cfg *config.Config, memSvc *memory.Service) (adka
 
 func NewExpertEvolver(llm model.LLM, cfg *config.Config, memSvc *memory.Service) (adkagent.Agent, error) {
 	return newEvolver(llm, cfg, memSvc, ExpertEvolverName, prompt.ExpertEvolverSystem())
+}
+
+func NewMetaEvolver(llm model.LLM, cfg *config.Config, memSvc *memory.Service) (adkagent.Agent, error) {
+	return newEvolver(llm, cfg, memSvc, MetaEvolverName, prompt.MetaEvolverSystem())
 }
 
 func newEvolver(llm model.LLM, cfg *config.Config, memSvc *memory.Service, name string, instruction string) (adkagent.Agent, error) {

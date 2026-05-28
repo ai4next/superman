@@ -3,15 +3,19 @@
 
 ![Logo](assets/banner.png)
 
-通用自治 AI Agent。支持多模型、6 个内建工具、扁平文件记忆、专家委托、MCP Server 集成、即时通信软件接入、持久会话管理，以及终端界面。
+自进化自治 AI Agent。Superman 负责在工具和专家子 Agent 之间路由任务，持久化会话与扁平文件记忆，并通过分层 agent/meta evolution 将完成的工作沉淀为长期知识。
 
 ## 💡 设计哲学
 
-- **路由胜于膨胀。** “一个 Agent 统治一切”是幻想。专家是窄领域子 Agent，主 Agent 负责路由。
+- **群体胜于单体。** 巨型 prompt 不是智能，只是披着产品名的熵。Superman 通过工具和领域专家协同工作，而不是假装一个上下文窗口能容纳所有能力。
 
-- **后台胜于阻塞。** 归档、分析、优化都不该让用户等待。
+- **后台胜于阻塞。** 用户不该为系统打扫卫生付出延迟。归档、记忆沉淀、专家培养、元进化都应该在 run 之后发生，系统变好，但工作不中断。
 
-- **简单胜于复杂。** 难题拆成小步。长上下文失败往往不是因为太短，而是因为太吵。清晰永远更重要。
+- **进化胜于堆积。** 日志不是记忆。大多数历史如果没有被压缩成事实、流程或更锋利的 Agent，就只是噪声。Agent evolution 改进 Superman 和专家；meta evolution 只改进进化过程。系统可以学习，但必须有墙。
+
+- **边界胜于感觉。** 没有写入边界的自我改进只是自动漂移。Superman 记忆、专家记忆、专家 soul、evolver 记忆、sessions、audit logs 必须分开，因为所有权边界决定学习会变成能力，还是变成污染。
+
+- **清晰胜于混沌。** 长上下文失败常常不是因为不够长，而是因为被污染。系统选择小文件、显式 scope、持久会话和可检查 diff，因为可靠的自治需要文件系统，而不是神秘感。
 
 ---
 
@@ -59,6 +63,7 @@ VERSION=v0.0.1 INSTALL_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://raw.gi
 - **运行时审计** — 工具调用、文本增量、错误、进化等事件流式写入可查询 JSONL audit log
 - **扁平文件记忆** — 全局事实（L1）和 SOP 文件（L2）直接存储在 workspace 中
 - **专家委托** — 将任务分派给拥有独立记忆和持久会话的专家子 Agent
+- **分层自进化** — agent evolver 从完成会话中改进 Superman/专家；meta evolver 只从 evolver 会话中改进进化过程本身
 - **插件系统** — 统一 run/model/tool 日志与会话回收
 - **终端界面** — 暗色主题、Emacs 风格键绑定、侧边栏、Dialog 系统
 - **Hook 系统** — 11 种生命周期事件钩子（run/tool/model 等前后），通过 JSON stdin/stdout 协议执行外部脚本
@@ -328,7 +333,7 @@ superman/
 │   │   ├── agent.go                 # Agent 工厂，注入 memory/SOP/context
 │   │   ├── context.go               # Agent run 上下文构建器
 │   │   ├── tool.go                  # 动态内建工具/toolset 组装
-│   │   └── evolver.go               # 进化 Agent 工厂
+│   │   └── evolver.go               # Agent/meta 进化 Agent 工厂
 │   ├── prompt/                      # 内嵌提示词模板
 │   │   └── template/                # Markdown 提示词模板
 │   ├── config/                      # YAML + 环境变量配置 (viper)，内嵌 config.example.yaml
@@ -370,13 +375,14 @@ superman/
 │   └── snapshots/                        # 文件 revision snapshots
 ├── runtime/
 │   └── events.jsonl                      # runtime audit event log
-├── evolution/                            # Evolver 自己的运行时根目录
+├── evolution/                            # Agent evolver + meta evolver 运行时根目录
 │   ├── memory/                           # Evolver 自己的扁平文件记忆
 │   │   ├── l1.toml
 │   │   └── l2/
 │   ├── state.db                          # Evolver SQLite session/message 元数据
 │   └── sessions/
-│       └── <id>.log                      # Evolver 精简会话日志
+│       ├── agent-evolution-<...>.log     # Agent 进化会话日志
+│       └── meta-evolution-<...>.log      # Meta 进化会话日志
 ├── hooks/                                # Hook 事件脚本（11 种生命周期事件）
 ├── skills/                               # Skill 定义（SKILL.md）
 ├── memory/                               # superman 扁平文件记忆
