@@ -50,6 +50,7 @@ func Load(configPath string) (*Config, error) {
 
 	// Expand ${VAR} references in api_key
 	cfg.Model.APIKey = os.ExpandEnv(cfg.Model.APIKey)
+	cfg.Model.Headers = v.GetStringMapString("model.headers")
 	expandPaths(&cfg)
 	expandIMOptions(&cfg)
 

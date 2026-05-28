@@ -35,6 +35,7 @@ var systemPrompt string
 type BuildConfig struct {
 	Name              string
 	Instruction       string
+	Config            *config.Config
 	MemoryService     *memory.Service
 	SessionService    adksession.Service
 	ContextMessages   int
@@ -96,21 +97,15 @@ func DescribeConfiguredToolsets(cfg *config.Config) []ToolsetDescriptor {
 // NewFromConfig creates an agent with the shared Superman runtime wiring:
 // configured tools, optional isolated memory, shared hooks, and shared skills.
 func NewFromConfig(llm model.LLM, cfg *config.Config, build BuildConfig) (adkagent.Agent, []*plugin.Plugin, error) {
+	build.Config = cfg
 	expertRegistry := build.ExpertRegistry
 	delegateRunner := build.DelegateRunner
 	if !build.EnableExpertTools {
 		expertRegistry = nil
 		delegateRunner = nil
 	}
-
-	deps := tool.Dependencies{
-		Config:         cfg,
-		ExpertManager:  expertRegistry,
-		DelegateRunner: delegateRunner,
-		ExpertTools:    build.EnableExpertTools,
-	}
-
-	toolList := tool.RegisterAll(deps)
+	build.ExpertRegistry = expertRegistry
+	build.DelegateRunner = delegateRunner
 
 	var extraPlugins []*plugin.Plugin
 	builtin, err := NewBuiltin(build)
@@ -129,17 +124,9 @@ func NewFromConfig(llm model.LLM, cfg *config.Config, build BuildConfig) (adkage
 		extraPlugins = append(extraPlugins, hookMgr.Plugin())
 	}
 
-	agentToolsets := buildToolsets(context.Background(), cfg)
-
 	agentConfig := llmagent.Config{
-		Name:     build.Name,
-		Model:    llm,
-	}
-	if len(toolList) > 0 {
-		agentConfig.Tools = toolList
-	}
-	if len(agentToolsets) > 0 {
-		agentConfig.Toolsets = agentToolsets
+		Name:  build.Name,
+		Model: llm,
 	}
 	a, err := llmagent.New(agentConfig)
 	if err != nil {

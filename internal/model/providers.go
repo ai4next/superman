@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
@@ -35,6 +36,9 @@ func New(ctx context.Context, cfg config.ModelConfig) (model.LLM, error) {
 			Backend:  genai.BackendVertexAI,
 			Project:  projectID,
 			Location: location,
+			HTTPOptions: genai.HTTPOptions{
+				Headers: modelHeaders(cfg.Headers),
+			},
 		})
 
 	case "claude":
@@ -53,6 +57,9 @@ func New(ctx context.Context, cfg config.ModelConfig) (model.LLM, error) {
 			APIKey:    apiKey,
 			BaseURL:   baseURL,
 			ModelName: cfg.Name,
+			HTTPOptions: anthropic.HTTPOptions{
+				Headers: modelHeaders(cfg.Headers),
+			},
 		}
 		return anthropic.New(cfg), nil
 
@@ -70,7 +77,24 @@ func New(ctx context.Context, cfg config.ModelConfig) (model.LLM, error) {
 			APIKey:    apiKey,
 			BaseURL:   baseURL,
 			ModelName: cfg.Name,
+			HTTPOptions: openai.HTTPOptions{
+				Headers: modelHeaders(cfg.Headers),
+			},
 		}
 		return openai.New(cfg), nil
 	}
+}
+
+func modelHeaders(headers map[string]string) http.Header {
+	if len(headers) == 0 {
+		return nil
+	}
+	out := make(http.Header, len(headers))
+	for key, value := range headers {
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		out.Add(key, value)
+	}
+	return out
 }

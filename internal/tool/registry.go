@@ -41,9 +41,16 @@ func RegisterAll(deps Dependencies) []tool.Tool {
 	if deps.Config.Tools.AskUser.Enabled {
 		tools = append(tools, newAskUserTool(deps))
 	}
-	if deps.ExpertTools && deps.DelegateRunner != nil {
+	if shouldRegisterDelegateTool(deps) {
 		tools = append(tools, newDelegateTool(deps))
 	}
 
 	return tools
+}
+
+func shouldRegisterDelegateTool(deps Dependencies) bool {
+	if !deps.ExpertTools || deps.DelegateRunner == nil || deps.ExpertManager == nil {
+		return false
+	}
+	return len(deps.ExpertManager.List()) > 0
 }

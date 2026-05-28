@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -141,4 +142,40 @@ im:
 	if got := cfg.IM.Platforms[0].Options["group_reply_all"]; got != true {
 		t.Fatalf("group_reply_all = %#v, want true", got)
 	}
+}
+
+func TestLoadExpandsModelHeaders(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("SUPERMAN_TEST_HEADER", "expanded-header")
+
+	cfgPath := filepath.Join(tmp, "config.yaml")
+	data := []byte(`workspace: ` + tmp + `
+model:
+  headers:
+    X-Custom-Token: ${SUPERMAN_TEST_HEADER}
+    X-Static: static-value
+`)
+	if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := configHeaderValue(cfg.Model.Headers, "X-Custom-Token"); got != "expanded-header" {
+		t.Fatalf("X-Custom-Token = %q, want expanded-header", got)
+	}
+	if got := configHeaderValue(cfg.Model.Headers, "X-Static"); got != "static-value" {
+		t.Fatalf("X-Static = %q, want static-value", got)
+	}
+}
+
+func configHeaderValue(headers map[string]string, key string) string {
+	for k, v := range headers {
+		if strings.EqualFold(k, key) {
+			return v
+		}
+	}
+	return ""
 }

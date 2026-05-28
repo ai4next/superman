@@ -53,7 +53,7 @@ type evolutionPromptData struct {
 //   - L1 (facts)         → l1.toml
 //   - L2 (SOPs)          → l2/*.md
 //   - Session logs       → sessions/*.log
-//   - Expert definitions → {expertDir}/{name}/expert.yaml when expertDir is set
+//   - Expert souls       → {expertDir}/{name}/soul.md when expertDir is set
 type Evolution struct {
 	runner   *runner.Runner
 	signal   chan hook.EvolutionSignal

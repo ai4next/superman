@@ -25,17 +25,13 @@ type DelegateRunner interface {
 
 func newDelegateTool(deps Dependencies) tool.Tool {
 	desc := "Delegate to an expert."
-	if deps.ExpertManager != nil {
-		experts := deps.ExpertManager.List()
-		if len(experts) > 0 {
-			var lines []string
-			for _, e := range experts {
-				lines = append(lines, fmt.Sprintf("  - %s", e.Name))
-			}
-			desc += "\nExperts:\n" + strings.Join(lines, "\n")
-		} else {
-			desc += "\nNo experts available."
+	experts := deps.ExpertManager.List()
+	if len(experts) > 0 {
+		var lines []string
+		for _, e := range experts {
+			lines = append(lines, fmt.Sprintf("  - %s", e.Name))
 		}
+		desc += "\nExperts:\n" + strings.Join(lines, "\n")
 	}
 
 	handler := func(tctx tool.Context, input delegateInput) (delegateOutput, error) {

@@ -9,9 +9,11 @@ import (
 	"google.golang.org/adk/tool"
 )
 
-type fakeExpertManager struct{}
+type fakeExpertManager struct {
+	experts []*expert.Spec
+}
 
-func (fakeExpertManager) List() []*expert.Spec { return nil }
+func (m fakeExpertManager) List() []*expert.Spec { return m.experts }
 
 type fakeDelegateRunner struct{}
 
@@ -44,12 +46,27 @@ func TestRegisterAllExpertToolsFlag(t *testing.T) {
 
 	with := RegisterAll(Dependencies{
 		Config:         cfg,
-		ExpertManager:  fakeExpertManager{},
+		ExpertManager:  fakeExpertManager{experts: []*expert.Spec{{Name: "architect"}}},
 		DelegateRunner: fakeDelegateRunner{},
 		ExpertTools:    true,
 	})
 	withNames := toolNames(with)
 	if !withNames["delegate_to_expert"] {
 		t.Fatalf("tool %q should be enabled when ExpertTools=true", "delegate_to_expert")
+	}
+}
+
+func TestRegisterAllSkipsDelegateWithoutExperts(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Expert.Enabled = true
+
+	tools := RegisterAll(Dependencies{
+		Config:         cfg,
+		ExpertManager:  fakeExpertManager{},
+		DelegateRunner: fakeDelegateRunner{},
+		ExpertTools:    true,
+	})
+	if toolNames(tools)["delegate_to_expert"] {
+		t.Fatalf("tool %q should be disabled when no experts are available", "delegate_to_expert")
 	}
 }

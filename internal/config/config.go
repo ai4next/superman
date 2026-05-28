@@ -20,10 +20,11 @@ type Config struct {
 
 // ModelConfig configures the LLM provider.
 type ModelConfig struct {
-	Provider string `mapstructure:"provider"`
-	Name     string `mapstructure:"name"`
-	BaseURL  string `mapstructure:"base_url"`
-	APIKey   string `mapstructure:"api_key"`
+	Provider string            `mapstructure:"provider"`
+	Name     string            `mapstructure:"name"`
+	BaseURL  string            `mapstructure:"base_url"`
+	APIKey   string            `mapstructure:"api_key"`
+	Headers  map[string]string `mapstructure:"headers"`
 }
 
 // ServerConfig configures the HTTP server.

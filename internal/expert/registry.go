@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-
-	"go.yaml.in/yaml/v3"
 )
 
 // Registry manages expert definitions with file-based persistence.
@@ -18,7 +16,7 @@ type Registry struct {
 }
 
 // NewRegistry creates a registry rooted at dir, where each expert lives under
-// dir/{expert_name}/expert.yaml.
+// dir/{expert_name}/soul.md.
 func NewRegistry(dir string) *Registry {
 	return &Registry{
 		dir:     dir,
@@ -34,16 +32,19 @@ func (r *Registry) LoadFromDisk() error {
 	entries, err := os.ReadDir(r.dir)
 	if err != nil {
 		if os.IsNotExist(err) {
+			r.experts = make(map[string]*Spec)
 			return nil
 		}
 		return fmt.Errorf("read experts dir: %w", err)
 	}
 
+	experts := make(map[string]*Spec)
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		specPath := filepath.Join(r.dir, entry.Name(), "expert.yaml")
+		name := entry.Name()
+		specPath := filepath.Join(r.dir, name, "soul.md")
 		data, err := os.ReadFile(specPath)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -52,13 +53,15 @@ func (r *Registry) LoadFromDisk() error {
 			log.Printf("[expert] skip %s: %v", entry.Name(), err)
 			continue
 		}
-		var spec Spec
-		if err := yaml.Unmarshal(data, &spec); err != nil {
-			log.Printf("[expert] skip %s: bad YAML: %v", entry.Name(), err)
+		prompt := string(data)
+		if prompt == "" {
+			log.Printf("[expert] skip %s: empty soul.md", entry.Name())
 			continue
 		}
-		r.experts[spec.Name] = &spec
+		spec := Spec{Name: name, SystemPrompt: prompt}
+		experts[spec.Name] = &spec
 	}
+	r.experts = experts
 	return nil
 }
 
@@ -95,10 +98,6 @@ func (r *Registry) persistLocked(spec *Spec) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	data, err := yaml.Marshal(spec)
-	if err != nil {
-		return err
-	}
-	path := filepath.Join(dir, "expert.yaml")
-	return os.WriteFile(path, data, 0644)
+	path := filepath.Join(dir, "soul.md")
+	return os.WriteFile(path, []byte(spec.SystemPrompt), 0644)
 }

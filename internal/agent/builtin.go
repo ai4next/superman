@@ -10,6 +10,7 @@ import (
 func NewBuiltin(build BuildConfig) (*adkplugin.Plugin, error) {
 	instructionBuilder := instructionProvider(build)
 	contentsBuilder := contentsProvider(build)
+	dynamicToolsBuilder := dynamicToolsProvider(build)
 	return adkplugin.New(adkplugin.Config{
 		Name: "builtin",
 		BeforeModelCallback: func(ctx adkagent.CallbackContext, req *model.LLMRequest) (*model.LLMResponse, error) {
@@ -34,6 +35,9 @@ func NewBuiltin(build BuildConfig) (*adkplugin.Plugin, error) {
 			}
 			if len(contents) > 0 {
 				req.Contents = append(contents, req.Contents...)
+			}
+			if err := dynamicToolsBuilder(ctx, req); err != nil {
+				return nil, err
 			}
 			return nil, nil
 		},

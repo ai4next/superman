@@ -70,7 +70,7 @@ func TestDelegateRunPersistsSessionReferencesAndAudit(t *testing.T) {
 	if err := os.MkdirAll(expertDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(expertDir, "expert.yaml"), []byte("name: reviewer\nprompt: You review code.\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(expertDir, "soul.md"), []byte("You review code."), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
