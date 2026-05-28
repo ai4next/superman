@@ -3,7 +3,7 @@
 
 ![Logo](assets/banner.png)
 
-自进化自治 AI Agent。Superman 负责在工具和专家子 Agent 之间路由任务，持久化会话与扁平文件记忆，并通过分层 agent/meta evolution 将完成的工作沉淀为长期知识。
+群体进化自治 AI Agent。Superman 将工具和专家子 Agent 协调为有边界的 Agent 群体，持久化会话与扁平文件记忆，并通过分层 agent/meta evolution 将完成的工作沉淀为主 Agent 与专家都可复用的长期知识。
 
 ## 💡 设计哲学
 

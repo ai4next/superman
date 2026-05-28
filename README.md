@@ -3,7 +3,7 @@
 
 ![Logo](assets/banner.png)
 
-Self-evolving autonomous AI agent. Superman routes work across tools and expert sub-agents, persists sessions and flat-file memory, and uses layered agent/meta evolution to turn completed work into durable knowledge.
+Collective-evolving autonomous AI agent. Superman coordinates tools and expert sub-agents as a bounded agent collective, persists sessions and flat-file memory, and uses layered agent/meta evolution to turn completed work into durable knowledge for both the main agent and its experts.
 
 ## 💡 Design Philosophy
 
