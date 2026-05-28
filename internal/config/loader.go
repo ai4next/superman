@@ -134,8 +134,14 @@ func applyDefaults(cfg *Config, skillsEnabledSet bool, loopDetectionEnabledSet b
 	if !skillsEnabledSet {
 		cfg.Skills.Enabled = true
 	}
-	if cfg.Tools.CodeRun.Timeout == 0 {
-		cfg.Tools.CodeRun.Timeout = Duration(30 * time.Second)
+	if cfg.Tools.Exec.Timeout == 0 && cfg.Tools.CodeRun.Timeout != 0 {
+		cfg.Tools.Exec.Timeout = cfg.Tools.CodeRun.Timeout
+	}
+	if !cfg.Tools.Exec.Enabled && cfg.Tools.CodeRun.Enabled {
+		cfg.Tools.Exec.Enabled = true
+	}
+	if cfg.Tools.Exec.Timeout == 0 {
+		cfg.Tools.Exec.Timeout = Duration(30 * time.Second)
 	}
 	if cfg.Tools.Read.MaxSize == 0 {
 		cfg.Tools.Read.MaxSize = 10_485_760 // 10MB

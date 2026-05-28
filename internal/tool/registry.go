@@ -26,8 +26,8 @@ func RegisterAll(deps Dependencies) []tool.Tool {
 	}
 	var tools []tool.Tool
 
-	if deps.Config.Tools.CodeRun.Enabled {
-		tools = append(tools, newCodeRunTool(deps))
+	if deps.Config.Tools.Exec.Enabled {
+		tools = append(tools, newExecTool(deps))
 	}
 	if deps.Config.Tools.Read.Enabled {
 		tools = append(tools, newReadTool(deps))
@@ -38,8 +38,8 @@ func RegisterAll(deps Dependencies) []tool.Tool {
 	if deps.Config.Tools.Patch.Enabled {
 		tools = append(tools, newPatchTool(deps))
 	}
-	if deps.Config.Tools.AskUser.Enabled {
-		tools = append(tools, newAskUserTool(deps))
+	if deps.Config.Tools.Ask.Enabled {
+		tools = append(tools, newAskTool(deps))
 	}
 	if shouldRegisterDelegateTool(deps) {
 		tools = append(tools, newDelegateTool(deps))

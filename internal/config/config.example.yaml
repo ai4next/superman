@@ -13,10 +13,9 @@ server:
   addr: 127.0.0.1:8080
 
 tools:
-  code_run:
+  exec:
     enabled: true
     timeout: 30s
-    allowed_languages: [python, bash, sh]
   read:
     enabled: true
     max_size: 10485760       # 10MB
@@ -25,7 +24,7 @@ tools:
     max_size: 10485760       # 10MB
   patch:
     enabled: true
-  ask_user:
+  ask:
     enabled: true
 
 # Memory index limits

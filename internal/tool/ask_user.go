@@ -10,35 +10,33 @@ import (
 	"google.golang.org/adk/tool/functiontool"
 )
 
-type askUserInput struct {
+type askInput struct {
 	Question string `json:"question" jsonschema:"Question for the user"`
 }
 
-type askUserOutput struct {
-	Question string `json:"question"`
-	Answer   string `json:"answer"`
+type askOutput struct {
+	Answer string `json:"answer"`
 }
 
-func newAskUserTool(deps Dependencies) tool.Tool {
-	handler := func(tctx tool.Context, input askUserInput) (askUserOutput, error) {
-		return askUser(input)
+func newAskTool(deps Dependencies) tool.Tool {
+	handler := func(tctx tool.Context, input askInput) (askOutput, error) {
+		return ask(input)
 	}
 	t, _ := functiontool.New(functiontool.Config{
-		Name:        "ask_user",
-		Description: "Ask the user.",
+		Name:        "ask",
+		Description: "Ask the user",
 	}, handler)
 	return t
 }
 
-func askUser(input askUserInput) (askUserOutput, error) {
+func ask(input askInput) (askOutput, error) {
 	fmt.Fprintf(os.Stderr, "\n[Agent asks]: %s\n> ", input.Question)
 	reader := bufio.NewReader(os.Stdin)
 	answer, err := reader.ReadString('\n')
 	if err != nil {
-		return askUserOutput{}, fmt.Errorf("failed to read user input: %w", err)
+		return askOutput{}, fmt.Errorf("failed to read user input: %w", err)
 	}
-	return askUserOutput{
-		Question: input.Question,
-		Answer:   strings.TrimSpace(answer),
+	return askOutput{
+		Answer: strings.TrimSpace(answer),
 	}, nil
 }

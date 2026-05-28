@@ -12,14 +12,14 @@ func TestEvolverToolsFollowRuntimeConfig(t *testing.T) {
 	cfg.Tools.Read.Enabled = true
 	cfg.Tools.Write.Enabled = false
 	cfg.Tools.Patch.Enabled = true
-	cfg.Tools.CodeRun.Enabled = false
-	cfg.Tools.AskUser.Enabled = false
+	cfg.Tools.Exec.Enabled = false
+	cfg.Tools.Ask.Enabled = false
 
 	names := toolNameSet(evolverTools(cfg))
 	if !names["read"] || !names["patch"] {
 		t.Fatalf("enabled tools missing: %#v", names)
 	}
-	for _, disabled := range []string{"write", "code_run", "ask_user", "delegate_to_expert"} {
+	for _, disabled := range []string{"write", "exec", "ask", "delegate"} {
 		if names[disabled] {
 			t.Fatalf("disabled/unavailable tool %q should not be registered: %#v", disabled, names)
 		}

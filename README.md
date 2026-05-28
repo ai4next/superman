@@ -56,7 +56,7 @@ VERSION=v0.0.1 INSTALL_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://raw.gi
 ## ✨ Features
 
 - **Multi-model support** — Gemini (Vertex AI), OpenAI, DeepSeek, Claude, Ollama, and any OpenAI-compatible API
-- **6 built-in tools** — code execution, file read/write/patch, user interaction, expert delegation
+- **6 built-in tools** — OS-aware command execution, file read/write/patch, user interaction, expert delegation
 - **MCP server integration** — plug in any MCP-compatible tool server via config (stdin/stdout transport)
 - **Instant-messaging integration** — run a long-lived server that connects Superman to Telegram, Feishu/Lark, WeCom, Weixin, QQ, DingTalk, Slack, Discord, LINE, and Weibo
 - **Persistent sessions** — SQLite-backed session/message store with compact `U/A/T/O` evolution logs, automatic compaction, file revision tracking, and session export/import
@@ -115,7 +115,7 @@ model:
     X-Request-Source: superman
 
 tools:
-  code_run:
+  exec:
     enabled: true
     timeout: 30s
 
@@ -201,14 +201,14 @@ The command prints a QR code in the terminal, waits for phone confirmation, prin
 
 | Tool | Description |
 |------|-------------|
-| `code_run` | Execute Python/Shell code |
+| `exec` | Execute a shell command using bash, sh, or PowerShell based on the current OS |
 | `read` | Read file lines |
 | `write` | Write files |
 | `patch` | Replace one exact text match in a file |
-| `ask_user` | Interrupt to ask the user a question |
-| `delegate_to_expert` | Delegate a task to an expert for independent execution |
+| `ask` | Interrupt to ask the user a question |
+| `delegate` | Delegate a task to an expert for independent execution |
 
-`delegate_to_expert` is loaded dynamically only when expert delegation is enabled and at least one expert is available. Experts are stored as directories under `experts/{expert_name}`; the directory name is the expert name and `soul.md` is the expert's system prompt.
+`delegate` is loaded dynamically only when expert delegation is enabled and at least one expert is available. Experts are stored as directories under `experts/{expert_name}`; the directory name is the expert name and `soul.md` is the expert's system prompt.
 
 ## 🔌 Hooks & Skills
 

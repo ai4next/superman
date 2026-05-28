@@ -27,7 +27,7 @@ func newPatchTool(deps Dependencies) tool.Tool {
 	}
 	t, _ := functiontool.New(functiontool.Config{
 		Name:        "patch",
-		Description: "Replace one exact text match in a file.",
+		Description: "Replace one exact text match in a file",
 	}, handler)
 	return t
 }

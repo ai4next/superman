@@ -14,4 +14,4 @@ Write policy:
 - Create SOP `.md` files only for reusable expert procedures; never overwrite an existing SOP.
 - Patch the expert soul only when the completed session reveals a durable improvement to that expert's role, scope, constraints, or operating rules.
 - Never create, delete, merge, rename, or otherwise govern other experts.
-- Use `code_run` only for analysis, deduping, or directory listing.
+- Use `exec` only for analysis, deduping, or directory listing.

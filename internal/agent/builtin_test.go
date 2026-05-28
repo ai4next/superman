@@ -47,7 +47,7 @@ func TestDynamicToolsProviderRefreshesDelegateTool(t *testing.T) {
 	if err := provider(ctx, req); err != nil {
 		t.Fatalf("dynamicToolsProvider returned error: %v", err)
 	}
-	if _, ok := req.Tools["delegate_to_expert"]; ok {
+	if _, ok := req.Tools["delegate"]; ok {
 		t.Fatalf("delegate tool should not be exposed without experts")
 	}
 
@@ -56,10 +56,10 @@ func TestDynamicToolsProviderRefreshesDelegateTool(t *testing.T) {
 	if err := provider(ctx, req); err != nil {
 		t.Fatalf("dynamicToolsProvider returned error: %v", err)
 	}
-	if _, ok := req.Tools["delegate_to_expert"]; !ok {
+	if _, ok := req.Tools["delegate"]; !ok {
 		t.Fatalf("delegate tool should be exposed when experts are available")
 	}
-	decl := firstDeclaration(req, "delegate_to_expert")
+	decl := firstDeclaration(req, "delegate")
 	if decl == nil || !strings.Contains(decl.Description, "architect") {
 		t.Fatalf("delegate declaration missing dynamic expert name: %#v", decl)
 	}

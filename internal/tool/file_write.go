@@ -16,9 +16,7 @@ type fileWriteInput struct {
 }
 
 type fileWriteOutput struct {
-	FilePath string `json:"file_path"`
 	Bytes    int    `json:"bytes_written"`
-	Mode     string `json:"mode"`
 }
 
 func newWriteTool(deps Dependencies) tool.Tool {
@@ -27,7 +25,7 @@ func newWriteTool(deps Dependencies) tool.Tool {
 	}
 	t, _ := functiontool.New(functiontool.Config{
 		Name:        "write",
-		Description: "Write a file.",
+		Description: "Write a file",
 	}, handler)
 	return t
 }
@@ -82,9 +80,7 @@ func writeFile(tctx tool.Context, deps Dependencies, input fileWriteInput) (file
 	}
 
 	out := fileWriteOutput{
-		FilePath: abs,
 		Bytes:    n,
-		Mode:     mode,
 	}
 	recordFileRevision(tctx, abs, mode, before, after, beforeMissing)
 	return out, nil

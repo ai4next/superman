@@ -34,18 +34,18 @@ type ServerConfig struct {
 
 // ToolsConfig contains sub-configs for each tool.
 type ToolsConfig struct {
-	CodeRun CodeRunConfig `mapstructure:"code_run"`
-	Read    ReadConfig    `mapstructure:"read"`
-	Write   WriteConfig   `mapstructure:"write"`
-	Patch   PatchConfig   `mapstructure:"patch"`
-	AskUser AskUserConfig `mapstructure:"ask_user"`
+	Exec    ExecConfig  `mapstructure:"exec"`
+	CodeRun ExecConfig  `mapstructure:"code_run"`
+	Read    ReadConfig  `mapstructure:"read"`
+	Write   WriteConfig `mapstructure:"write"`
+	Patch   PatchConfig `mapstructure:"patch"`
+	Ask     AskConfig   `mapstructure:"ask"`
 }
 
-// CodeRunConfig allows executing code snippets.
-type CodeRunConfig struct {
-	Enabled          bool     `mapstructure:"enabled"`
-	Timeout          Duration `mapstructure:"timeout"`
-	AllowedLanguages []string `mapstructure:"allowed_languages"`
+// ExecConfig allows executing shell commands.
+type ExecConfig struct {
+	Enabled bool     `mapstructure:"enabled"`
+	Timeout Duration `mapstructure:"timeout"`
 }
 
 // ReadConfig allows reading local files.
@@ -65,8 +65,8 @@ type PatchConfig struct {
 	Enabled bool `mapstructure:"enabled"`
 }
 
-// AskUserConfig allows asking the user for input.
-type AskUserConfig struct {
+// AskConfig allows asking the user for input.
+type AskConfig struct {
 	Enabled bool `mapstructure:"enabled"`
 }
 

@@ -14,4 +14,4 @@ Write policy:
 - Create SOP `.md` files only for reusable evolution procedures; never overwrite an existing SOP.
 - Never edit Superman memory, expert memory, expert souls, user session logs, prompt templates, or source code.
 - Never trigger or request another meta-evolution pass.
-- Use `code_run` only for analysis, deduping, or directory listing.
+- Use `exec` only for analysis, deduping, or directory listing.

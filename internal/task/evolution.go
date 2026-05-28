@@ -45,7 +45,7 @@ type evolutionPromptData struct {
 
 // Evolution processes completed-run signal and evolves long-lived runtime assets
 // from completed sessions using an ADK agent with read, write, patch,
-// and code_run tools.
+// and exec tools.
 //
 // The agent handles memory consolidation (facts + SOPs) and can optionally
 // cultivate experts. The completed-run signal defines the root directory:

@@ -40,8 +40,8 @@ func TestRegisterAllExpertToolsFlag(t *testing.T) {
 		ExpertTools:    false,
 	})
 	withoutNames := toolNames(without)
-	if withoutNames["delegate_to_expert"] {
-		t.Fatalf("tool %q should be disabled when ExpertTools=false", "delegate_to_expert")
+	if withoutNames["delegate"] {
+		t.Fatalf("tool %q should be disabled when ExpertTools=false", "delegate")
 	}
 
 	with := RegisterAll(Dependencies{
@@ -51,8 +51,8 @@ func TestRegisterAllExpertToolsFlag(t *testing.T) {
 		ExpertTools:    true,
 	})
 	withNames := toolNames(with)
-	if !withNames["delegate_to_expert"] {
-		t.Fatalf("tool %q should be enabled when ExpertTools=true", "delegate_to_expert")
+	if !withNames["delegate"] {
+		t.Fatalf("tool %q should be enabled when ExpertTools=true", "delegate")
 	}
 }
 
@@ -66,7 +66,7 @@ func TestRegisterAllSkipsDelegateWithoutExperts(t *testing.T) {
 		DelegateRunner: fakeDelegateRunner{},
 		ExpertTools:    true,
 	})
-	if toolNames(tools)["delegate_to_expert"] {
-		t.Fatalf("tool %q should be disabled when no experts are available", "delegate_to_expert")
+	if toolNames(tools)["delegate"] {
+		t.Fatalf("tool %q should be disabled when no experts are available", "delegate")
 	}
 }

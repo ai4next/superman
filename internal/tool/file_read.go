@@ -22,7 +22,6 @@ type fileReadOutput struct {
 	TotalLines int    `json:"total_lines"`
 	StartLine  int    `json:"start_line"`
 	EndLine    int    `json:"end_line"`
-	FilePath   string `json:"file_path"`
 }
 
 func newReadTool(deps Dependencies) tool.Tool {
@@ -31,7 +30,7 @@ func newReadTool(deps Dependencies) tool.Tool {
 	}
 	t, _ := functiontool.New(functiontool.Config{
 		Name:        "read",
-		Description: "Read file lines.",
+		Description: "Read file lines",
 	}, handler)
 	return t
 }
@@ -93,7 +92,6 @@ func readFile(tctx tool.Context, deps Dependencies, input fileReadInput) (fileRe
 		TotalLines: totalLines,
 		StartLine:  startLine,
 		EndLine:    endLine,
-		FilePath:   abs,
 	}
 	recordFileRead(tctx, abs)
 	return out, nil

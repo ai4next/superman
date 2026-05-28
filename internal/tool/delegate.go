@@ -24,7 +24,7 @@ type DelegateRunner interface {
 }
 
 func newDelegateTool(deps Dependencies) tool.Tool {
-	desc := "Delegate to an expert."
+	desc := "Delegate to an expert"
 	experts := deps.ExpertManager.List()
 	if len(experts) > 0 {
 		var lines []string
@@ -46,7 +46,7 @@ func newDelegateTool(deps Dependencies) tool.Tool {
 		return delegateOutput{Response: resp}, nil
 	}
 	t, _ := functiontool.New(functiontool.Config{
-		Name:        "delegate_to_expert",
+		Name:        "delegate",
 		Description: desc,
 	}, handler)
 	return t

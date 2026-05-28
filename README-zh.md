@@ -56,7 +56,7 @@ VERSION=v0.0.1 INSTALL_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://raw.gi
 ## ✨ 功能特性
 
 - **多模型支持** — Gemini (Vertex AI)、OpenAI、DeepSeek、Claude、Ollama，以及任何兼容 OpenAI 的 API
-- **6 个内建工具** — 代码执行、文件读写/补丁、用户交互、专家委托
+- **6 个内建工具** — 自动适配操作系统的命令执行、文件读写/补丁、用户交互、专家委托
 - **MCP Server 集成** — 通过配置接入任意 MCP 兼容工具服务（stdin/stdout transport）
 - **即时通信软件接入** — 以常驻 server 方式接入 Telegram、飞书/Lark、企业微信、微信个人号、QQ、钉钉、Slack、Discord、LINE、微博等平台
 - **持久会话** — SQLite-backed session/message store，配套精简 `U/A/T/O` 进化日志，支持自动压缩、文件 revision tracking、session 导入导出
@@ -120,10 +120,9 @@ server:
   addr: 127.0.0.1:8080
 
 tools:
-  code_run:
+  exec:
     enabled: true
     timeout: 30s
-    allowed_languages: [python, bash, sh]
   read:
     enabled: true
     max_size: 10485760       # 10MB
@@ -132,7 +131,7 @@ tools:
     max_size: 10485760       # 10MB
   patch:
     enabled: true
-  ask_user:
+  ask:
     enabled: true
 
 # Memory 索引限制
@@ -240,14 +239,14 @@ sm im weixin setup
 
 | 工具 | 说明 |
 |------|------|
-| `code_run` | 执行 Python/Shell 代码 |
+| `exec` | 根据当前操作系统使用 bash、sh 或 PowerShell 执行 shell 命令 |
 | `read` | 读取文件行 |
 | `write` | 写入文件 |
 | `patch` | 替换文件中的一个精确文本匹配 |
-| `ask_user` | 中断执行并向用户提问 |
-| `delegate_to_expert` | 将任务委托给专家独立执行 |
+| `ask` | 中断执行并向用户提问 |
+| `delegate` | 将任务委托给专家独立执行 |
 
-`delegate_to_expert` 会在每次调用模型前动态判断，只有启用专家委托且至少存在一个专家时才会加载。专家存储在 `experts/{expert_name}` 目录下，目录名就是专家名，`soul.md` 是专家的系统提示词。
+`delegate` 会在每次调用模型前动态判断，只有启用专家委托且至少存在一个专家时才会加载。专家存储在 `experts/{expert_name}` 目录下，目录名就是专家名，`soul.md` 是专家的系统提示词。
 
 ## 🔌 Hooks & Skills
 
