@@ -12,8 +12,8 @@ import (
 	"google.golang.org/adk/session"
 
 	supermanagent "github.com/ai4next/superman/internal/agent"
+	"github.com/ai4next/superman/internal/bus"
 	"github.com/ai4next/superman/internal/config"
-	supermanruntime "github.com/ai4next/superman/internal/runtime"
 	supermansession "github.com/ai4next/superman/internal/session"
 	"github.com/ai4next/superman/internal/tui/components"
 )
@@ -38,10 +38,10 @@ type Model struct {
 	cursorCol      int
 	scrollOffset   int
 	selection      selectionState
-	runtimeBroker  *supermanruntime.Broker
-	runtimeCh      <-chan supermanruntime.Event
+	runtimeBroker  bus.Broker
+	runtimeCh      <-chan bus.Event
 	runtimeCancel  context.CancelFunc
-	auditLogger    *supermanruntime.AuditLogger
+	auditLogger    *bus.AuditLogger
 	pulseOn        bool
 	currentTool    string
 	pendingConfirm *pendingConfirmation
@@ -107,7 +107,7 @@ type searchDialogState struct {
 }
 
 type runtimeEventMsg struct {
-	Event supermanruntime.Event
+	Event bus.Event
 	OK    bool
 }
 

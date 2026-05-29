@@ -71,8 +71,13 @@ reflect:
 
 # Expert cultivation/delegation
 expert:
-  enabled: true
   max_count: 10
+
+# Local event/task bus
+bus:
+  audit_log: ${HOME}/.sm/bus/events.jsonl
+  queue:
+    max_size: 100
 
 # Instant-messaging server.
 # Platform options are passed to Superman IM adapters.

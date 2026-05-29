@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	supermanruntime "github.com/ai4next/superman/internal/runtime"
+	"github.com/ai4next/superman/internal/bus"
 )
 
 func TestWriteRuntimeEventsTextAndJSON(t *testing.T) {
-	events := []supermanruntime.Event{
-		{Type: supermanruntime.EventRunStarted, SessionID: "1", RunID: "r1", At: time.Unix(1, 0)},
-		{Type: supermanruntime.EventToolCallStarted, SessionID: "1", RunID: "r1", ToolName: "read", Args: `{"path":"main.go"}`, At: time.Unix(2, 0)},
+	events := []bus.Event{
+		{Type: bus.EventRunStarted, SessionID: "1", RunID: "r1", At: time.Unix(1, 0)},
+		{Type: bus.EventToolCallStarted, SessionID: "1", RunID: "r1", ToolName: "read", Args: `{"path":"main.go"}`, At: time.Unix(2, 0)},
 	}
 	var buf bytes.Buffer
 	if err := writeRuntimeEvents(&buf, events, false); err != nil {
@@ -42,10 +42,10 @@ func TestWriteRuntimeEventsEmpty(t *testing.T) {
 }
 
 func TestWriteRuntimeSummary(t *testing.T) {
-	summary := supermanruntime.SummarizeAuditEvents([]supermanruntime.Event{
-		{Type: supermanruntime.EventRunStarted, SessionID: "1", RunID: "r1", At: time.Unix(1, 0)},
-		{Type: supermanruntime.EventToolCallStarted, SessionID: "1", RunID: "r1", ToolName: "read", At: time.Unix(2, 0)},
-		{Type: supermanruntime.EventRunFailed, SessionID: "1", RunID: "r1", Error: "boom", At: time.Unix(3, 0)},
+	summary := bus.SummarizeAuditEvents([]bus.Event{
+		{Type: bus.EventRunStarted, SessionID: "1", RunID: "r1", At: time.Unix(1, 0)},
+		{Type: bus.EventToolCallStarted, SessionID: "1", RunID: "r1", ToolName: "read", At: time.Unix(2, 0)},
+		{Type: bus.EventRunFailed, SessionID: "1", RunID: "r1", Error: "boom", At: time.Unix(3, 0)},
 	})
 	var buf bytes.Buffer
 	if err := writeRuntimeSummary(&buf, summary, false); err != nil {
@@ -69,7 +69,7 @@ func TestParseRuntimeEventTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0] != supermanruntime.EventRunStarted || got[1] != supermanruntime.EventToolCallFinished {
+	if len(got) != 2 || got[0] != bus.EventRunStarted || got[1] != bus.EventToolCallFinished {
 		t.Fatalf("types = %#v", got)
 	}
 }

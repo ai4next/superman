@@ -16,12 +16,12 @@ import (
 	"google.golang.org/genai"
 
 	supermanagent "github.com/ai4next/superman/internal/agent"
+	"github.com/ai4next/superman/internal/bus"
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/global"
 	"github.com/ai4next/superman/internal/hook"
 	"github.com/ai4next/superman/internal/memory"
 	"github.com/ai4next/superman/internal/prompt"
-	supermanruntime "github.com/ai4next/superman/internal/runtime"
 	supermansession "github.com/ai4next/superman/internal/session"
 )
 
@@ -57,7 +57,7 @@ type Evolution struct {
 	metaRunner     *runner.Runner
 	signal         chan hook.EvolutionSignal
 	sessions       adksession.Service
-	broker         *supermanruntime.Broker
+	broker         bus.Broker
 }
 
 // NewEvolution creates an ADK agent for memory consolidation and optional expert cultivation.
@@ -112,7 +112,7 @@ func newEvolutionRunner(llm model.LLM, memSvc *memory.Service, sessionService ad
 	return r, nil
 }
 
-func (e *Evolution) SetBroker(broker *supermanruntime.Broker) {
+func (e *Evolution) SetBroker(broker bus.Broker) {
 	e.broker = broker
 }
 
@@ -231,12 +231,12 @@ func (e *Evolution) Loop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case signal := <-e.signal:
-			e.publish(supermanruntime.EvolutionStarted(signal.SessionID, signal.Role))
+			e.publish(bus.EvolutionStarted(signal.SessionID, signal.Role))
 			if err := e.runAgent(ctx, signal); err != nil {
-				e.publish(supermanruntime.EvolutionFailed(signal.SessionID, signal.Role, err))
+				e.publish(bus.EvolutionFailed(signal.SessionID, signal.Role, err))
 				log.Printf("[evolution] %s: %v", signal.SessionID, err)
 			} else {
-				e.publish(supermanruntime.EvolutionFinished(signal.SessionID, signal.Role, ""))
+				e.publish(bus.EvolutionFinished(signal.SessionID, signal.Role, ""))
 			}
 		}
 	}
@@ -330,9 +330,9 @@ func (e *Evolution) runnerFor(scope evolutionScope) (*runner.Runner, error) {
 	return e.supermanRunner, nil
 }
 
-func (e *Evolution) publish(event supermanruntime.Event) {
+func (e *Evolution) publish(event bus.Event) {
 	if e != nil && e.broker != nil {
-		e.broker.Publish(event)
+		_ = e.broker.Publish(context.Background(), event)
 	}
 }
 

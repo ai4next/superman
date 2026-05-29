@@ -31,6 +31,18 @@ func (m *dynamicExpertManager) RunDelegate(context.Context, string, string) (str
 
 var _ supermantool.DelegateRunner = (*dynamicExpertManager)(nil)
 
+type builtinFakeLLM struct{}
+
+func (builtinFakeLLM) Name() string { return "builtin-fake" }
+
+func (builtinFakeLLM) GenerateContent(context.Context, *model.LLMRequest, bool) iter.Seq2[*model.LLMResponse, error] {
+	return func(yield func(*model.LLMResponse, error) bool) {
+		yield(&model.LLMResponse{
+			Content: genai.NewContentFromText("ok", genai.RoleModel),
+		}, nil)
+	}
+}
+
 func TestDynamicToolsProviderRefreshesDelegateTool(t *testing.T) {
 	expertsDir := t.TempDir()
 	registry := expert.NewRegistry(expertsDir)
@@ -98,6 +110,58 @@ func TestProcessDynamicToolsetsSkipsEmptyToolsets(t *testing.T) {
 	}
 }
 
+func TestNewSequentialAgentOrganizesPlanExecuteLoop(t *testing.T) {
+	a, err := newSequentialAgent(builtinFakeLLM{}, BuildConfig{Name: "superman", Instruction: "base instruction"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Name() != "superman" {
+		t.Fatalf("agent name = %q", a.Name())
+	}
+	subagents := a.SubAgents()
+	if len(subagents) != 2 {
+		t.Fatalf("subagents = %d", len(subagents))
+	}
+	if subagents[0].Name() != "superman_planner" {
+		t.Fatalf("planner name = %q", subagents[0].Name())
+	}
+	if subagents[1].Name() != "superman_plan_execute_loop" {
+		t.Fatalf("loop name = %q", subagents[1].Name())
+	}
+	loopSubagents := subagents[1].SubAgents()
+	if len(loopSubagents) != 2 {
+		t.Fatalf("loop subagents = %d", len(loopSubagents))
+	}
+	if loopSubagents[0].Name() != "superman_executor" {
+		t.Fatalf("executor name = %q", loopSubagents[0].Name())
+	}
+	if loopSubagents[1].Name() != "superman_replanner" {
+		t.Fatalf("replanner name = %q", loopSubagents[1].Name())
+	}
+}
+
+func TestAgentExecutorBeforeModelInjectsRuntimeContext(t *testing.T) {
+	executor := newAgentExecutor(BuildConfig{Instruction: "base instruction"})
+	req := modelRequest()
+	if _, err := executor.beforeModel(testCallbackContext{}, req); err != nil {
+		t.Fatal(err)
+	}
+	instruction := contentText(req.Config.SystemInstruction)
+	if !strings.Contains(instruction, "base instruction") {
+		t.Fatalf("instruction = %q", instruction)
+	}
+	if strings.Contains(instruction, "Agent Planner") {
+		t.Fatalf("executor instruction should not include planner prompt: %q", instruction)
+	}
+}
+
+func TestVisiblePlanPromptAddsProgramPrefix(t *testing.T) {
+	got := visiblePlanPrompt("planner body")
+	if !strings.HasPrefix(got, "计划:\n") || !strings.Contains(got, "planner body") {
+		t.Fatalf("visible plan prompt = %q", got)
+	}
+}
+
 func modelRequest() *model.LLMRequest {
 	return &model.LLMRequest{Config: &genai.GenerateContentConfig{}}
 }
@@ -141,19 +205,37 @@ func (s staticToolset) ProcessRequest(ctx tool.Context, req *model.LLMRequest) e
 	return nil
 }
 
-type testCallbackContext struct{}
+type testCallbackContext struct {
+	invocationID string
+}
 
 func (testCallbackContext) Deadline() (time.Time, bool) { return time.Time{}, false }
 func (testCallbackContext) Done() <-chan struct{}       { return nil }
 func (testCallbackContext) Err() error                  { return nil }
 func (testCallbackContext) Value(any) any               { return nil }
+func (testCallbackContext) Agent() adkagent.Agent       { return nil }
+func (testCallbackContext) Memory() adkagent.Memory     { return nil }
+func (testCallbackContext) Session() adksession.Session { return nil }
 func (testCallbackContext) UserContent() *genai.Content { return nil }
-func (testCallbackContext) InvocationID() string        { return "invocation" }
-func (testCallbackContext) AgentName() string           { return "superman" }
-func (testCallbackContext) UserID() string              { return "user" }
-func (testCallbackContext) AppName() string             { return "app" }
-func (testCallbackContext) SessionID() string           { return "session" }
-func (testCallbackContext) Branch() string              { return "" }
+func (testCallbackContext) RunConfig() *adkagent.RunConfig {
+	return nil
+}
+func (testCallbackContext) EndInvocation() {}
+func (testCallbackContext) Ended() bool    { return false }
+func (c testCallbackContext) WithContext(context.Context) adkagent.InvocationContext {
+	return c
+}
+func (c testCallbackContext) InvocationID() string {
+	if c.invocationID != "" {
+		return c.invocationID
+	}
+	return "invocation"
+}
+func (testCallbackContext) AgentName() string { return "superman" }
+func (testCallbackContext) UserID() string    { return "user" }
+func (testCallbackContext) AppName() string   { return "app" }
+func (testCallbackContext) SessionID() string { return "session" }
+func (testCallbackContext) Branch() string    { return "" }
 func (testCallbackContext) ReadonlyState() adksession.ReadonlyState {
 	return testState{}
 }

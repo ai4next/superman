@@ -15,6 +15,7 @@ type Config struct {
 	Session   SessionConfig  `mapstructure:"session"`
 	Reflect   ReflectConfig  `mapstructure:"reflect"`
 	Expert    ExpertConfig   `mapstructure:"expert"`
+	Bus       BusConfig      `mapstructure:"bus"`
 	IM        IMConfig       `mapstructure:"im"`
 }
 
@@ -150,8 +151,18 @@ type SchedulerConfig struct {
 
 // ExpertConfig configures the expert subsystem.
 type ExpertConfig struct {
-	Enabled  bool `mapstructure:"enabled"`
-	MaxCount int  `mapstructure:"max_count"`
+	MaxCount int `mapstructure:"max_count"`
+}
+
+// BusConfig configures the local event/task bus.
+type BusConfig struct {
+	Path     string         `mapstructure:"path"`
+	AuditLog string         `mapstructure:"audit_log"`
+	Queue    BusQueueConfig `mapstructure:"queue"`
+}
+
+type BusQueueConfig struct {
+	MaxSize int `mapstructure:"max_size"`
 }
 
 // IMConfig configures instant-messaging platform adapters.

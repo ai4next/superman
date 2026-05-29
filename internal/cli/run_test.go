@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ai4next/superman/internal/bus"
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/global"
-	supermanruntime "github.com/ai4next/superman/internal/runtime"
 	supermansession "github.com/ai4next/superman/internal/session"
 )
 
@@ -114,11 +114,11 @@ func TestBuildRunRequestUsesConfiguredSession(t *testing.T) {
 }
 
 func TestWriteRunEventWritesAuditSynchronously(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "runtime", "events.jsonl")
-	logger := supermanruntime.NewAuditLogger(path)
+	path := filepath.Join(t.TempDir(), "bus", "events.jsonl")
+	logger := bus.NewAuditLogger(path)
 	var out bytes.Buffer
-	event := supermanruntime.Event{
-		Type:      supermanruntime.EventTextDelta,
+	event := bus.Event{
+		Type:      bus.EventTextDelta,
 		SessionID: "1",
 		RunID:     "r1",
 		Text:      "hello",
@@ -130,11 +130,11 @@ func TestWriteRunEventWritesAuditSynchronously(t *testing.T) {
 	if out.String() != "hello" {
 		t.Fatalf("stdout = %q, want hello", out.String())
 	}
-	events, err := supermanruntime.ReadAuditLog(path, supermanruntime.AuditFilter{})
+	events, err := bus.ReadAuditLog(path, bus.AuditFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 1 || events[0].Type != supermanruntime.EventTextDelta || events[0].Text != "hello" {
+	if len(events) != 1 || events[0].Type != bus.EventTextDelta || events[0].Text != "hello" {
 		t.Fatalf("audit events = %#v", events)
 	}
 }

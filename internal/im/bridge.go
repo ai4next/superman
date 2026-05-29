@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ai4next/superman/internal/bus"
 	"github.com/ai4next/superman/internal/config"
 	supermanruntime "github.com/ai4next/superman/internal/runtime"
 	adkrunner "google.golang.org/adk/runner"
@@ -104,11 +105,11 @@ func (b *AgentBridge) runAndReply(ctx context.Context, client *Client, msg *Mess
 			return err
 		}
 		switch event.Type {
-		case supermanruntime.EventTextDelta:
+		case bus.EventTextDelta:
 			out.WriteString(event.Text)
-		case supermanruntime.EventPermissionRequested:
+		case bus.EventPermissionRequested:
 			return fmt.Errorf("工具 %s 需要人工确认；当前 IM 接入暂不支持确认流程", firstNonEmpty(event.ToolName, event.ToolID))
-		case supermanruntime.EventRunFailed:
+		case bus.EventRunFailed:
 			if event.Error != "" {
 				return errors.New(event.Error)
 			}

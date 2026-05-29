@@ -10,7 +10,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	adkagent "google.golang.org/adk/agent"
-	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/model"
 	"google.golang.org/adk/plugin"
 	adksession "google.golang.org/adk/session"
@@ -38,6 +37,8 @@ type BuildConfig struct {
 	ContextMessages   int
 	ExpertRegistry    *expert.Registry
 	DelegateRunner    tool.DelegateRunner
+	DelegateScheduler tool.DelegateScheduler
+	Orchestrator      tool.Orchestrator
 	EnableExpertTools bool
 	EvolutionSignal   hook.EvolutionSignal
 	EvolutionCh       chan<- hook.EvolutionSignal // completed-run signal receiver
@@ -96,19 +97,20 @@ func NewFromConfig(llm model.LLM, cfg *config.Config, build BuildConfig) (adkage
 	build.Config = cfg
 	expertRegistry := build.ExpertRegistry
 	delegateRunner := build.DelegateRunner
+	delegateScheduler := build.DelegateScheduler
+	orchestrator := build.Orchestrator
 	if !build.EnableExpertTools {
 		expertRegistry = nil
 		delegateRunner = nil
+		delegateScheduler = nil
+		orchestrator = nil
 	}
 	build.ExpertRegistry = expertRegistry
 	build.DelegateRunner = delegateRunner
+	build.DelegateScheduler = delegateScheduler
+	build.Orchestrator = orchestrator
 
 	var extraPlugins []*plugin.Plugin
-	builtin, err := NewBuiltin(build)
-	if err != nil {
-		return nil, nil, err
-	}
-	extraPlugins = append(extraPlugins, builtin)
 	signal := build.EvolutionSignal
 	if signal.AgentName == "" {
 		signal.AgentName = build.Name
@@ -120,11 +122,7 @@ func NewFromConfig(llm model.LLM, cfg *config.Config, build BuildConfig) (adkage
 		extraPlugins = append(extraPlugins, hookMgr.Plugin())
 	}
 
-	agentConfig := llmagent.Config{
-		Name:  build.Name,
-		Model: llm,
-	}
-	a, err := llmagent.New(agentConfig)
+	a, err := newSequentialAgent(llm, build)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -239,6 +237,8 @@ func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, sessionSvc a
 		ContextMessages:   12,
 		ExpertRegistry:    expertRegistry,
 		DelegateRunner:    delegateRunner,
+		DelegateScheduler: delegateSchedulerFromRunner(delegateRunner),
+		Orchestrator:      orchestratorFromRunner(delegateRunner),
 		EnableExpertTools: true,
 		EvolutionSignal: hook.EvolutionSignal{
 			UserID: "tui-user",
@@ -246,4 +246,14 @@ func New(llm model.LLM, cfg *config.Config, memSvc *memory.Service, sessionSvc a
 		},
 		EvolutionCh: evolutionCh,
 	})
+}
+
+func delegateSchedulerFromRunner(runner tool.DelegateRunner) tool.DelegateScheduler {
+	scheduler, _ := runner.(tool.DelegateScheduler)
+	return scheduler
+}
+
+func orchestratorFromRunner(runner tool.DelegateRunner) tool.Orchestrator {
+	orchestrator, _ := runner.(tool.Orchestrator)
+	return orchestrator
 }

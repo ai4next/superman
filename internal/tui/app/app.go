@@ -12,9 +12,9 @@ import (
 	"google.golang.org/adk/session"
 
 	supermanagent "github.com/ai4next/superman/internal/agent"
+	"github.com/ai4next/superman/internal/bus"
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/global"
-	supermanruntime "github.com/ai4next/superman/internal/runtime"
 	supermansession "github.com/ai4next/superman/internal/session"
 	"github.com/ai4next/superman/internal/tui/components"
 )
@@ -30,8 +30,8 @@ func New(a agent.Agent, cfg *config.Config, pluginCfg runner.PluginConfig, sessS
 		sessionID:      "1",
 		sessionTitle:   "Session 1",
 		modelName:      fmt.Sprintf("%s/%s", cfg.Model.Provider, cfg.Model.Name),
-		runtimeBroker:  supermanruntime.NewBroker(),
-		auditLogger:    supermanruntime.NewAuditLogger(global.RuntimeEventsPath()),
+		runtimeBroker:  bus.NewMemoryBroker(),
+		auditLogger:    bus.NewAuditLogger(global.BusEventsPath()),
 		toolStarts:     make(map[string]time.Time),
 		chatCacheDirty: true,
 		toolsets:       supermanagent.DescribeConfiguredToolsets(cfg),
@@ -112,7 +112,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.startNextQueuedPrompt()
 		}
 		m.applyRuntimeEvent(msg.Event)
-		if msg.Event.Type == supermanruntime.EventRunFinished || msg.Event.Type == supermanruntime.EventRunFailed {
+		if msg.Event.Type == bus.EventRunFinished || msg.Event.Type == bus.EventRunFailed {
 			return m.startNextQueuedPrompt()
 		}
 		if m.runtimeCh != nil {

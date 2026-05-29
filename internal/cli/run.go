@@ -13,6 +13,7 @@ import (
 	"google.golang.org/genai"
 
 	superman "github.com/ai4next/superman/internal/agent"
+	"github.com/ai4next/superman/internal/bus"
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/global"
 	"github.com/ai4next/superman/internal/model"
@@ -84,7 +85,7 @@ var runCmd = &cobra.Command{
 			return err
 		}
 
-		auditLogger := supermanruntime.NewAuditLogger(global.RuntimeEventsPath())
+		auditLogger := bus.NewAuditLogger(global.BusEventsPath())
 		for event, err := range supermanruntime.StreamRun(ctx, r, req, nil) {
 			if err != nil {
 				return fmt.Errorf("run error: %w", err)
@@ -98,11 +99,11 @@ var runCmd = &cobra.Command{
 	},
 }
 
-func writeRunEvent(w io.Writer, auditLogger *supermanruntime.AuditLogger, event supermanruntime.Event) error {
+func writeRunEvent(w io.Writer, auditLogger *bus.AuditLogger, event bus.Event) error {
 	if err := auditLogger.Write(event); err != nil {
 		return err
 	}
-	if event.Type == supermanruntime.EventTextDelta {
+	if event.Type == bus.EventTextDelta {
 		_, err := fmt.Fprint(w, event.Text)
 		return err
 	}

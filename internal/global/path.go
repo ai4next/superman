@@ -50,8 +50,35 @@ func RuntimeDir() string {
 	return filepath.Join(Config().Workspace, "runtime")
 }
 
+// RuntimeEventsPath is kept for compatibility. Runtime events are stored in the bus audit log.
 func RuntimeEventsPath() string {
-	return filepath.Join(RuntimeDir(), "events.jsonl")
+	return BusEventsPath()
+}
+
+func BusDir() string {
+	return filepath.Join(Config().Workspace, "bus")
+}
+
+func BusDBPath() string {
+	if Config().Bus.Path != "" {
+		return Config().Bus.Path
+	}
+	return ""
+}
+
+func BusEventsPath() string {
+	if Config().Bus.AuditLog != "" {
+		return Config().Bus.AuditLog
+	}
+	return filepath.Join(BusDir(), "events.jsonl")
+}
+
+func OrchestratorDir() string {
+	return filepath.Join(Config().Workspace, "orchestrator")
+}
+
+func PlansDir() string {
+	return filepath.Join(OrchestratorDir(), "plans")
 }
 
 func EvolutionDir() string {

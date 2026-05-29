@@ -22,15 +22,21 @@ type requestProcessor interface {
 func dynamicToolsProvider(build BuildConfig) func(adkagent.CallbackContext, *model.LLMRequest) error {
 	expertRegistry := build.ExpertRegistry
 	delegateRunner := build.DelegateRunner
+	delegateScheduler := build.DelegateScheduler
+	orchestrator := build.Orchestrator
 	if !build.EnableExpertTools {
 		expertRegistry = nil
 		delegateRunner = nil
+		delegateScheduler = nil
+		orchestrator = nil
 	}
 	deps := supermantool.Dependencies{
-		Config:         build.Config,
-		ExpertManager:  expertRegistry,
-		DelegateRunner: delegateRunner,
-		ExpertTools:    build.EnableExpertTools,
+		Config:            build.Config,
+		ExpertManager:     expertRegistry,
+		DelegateRunner:    delegateRunner,
+		DelegateScheduler: delegateScheduler,
+		Orchestrator:      orchestrator,
+		ExpertTools:       build.EnableExpertTools,
 	}
 
 	return func(ctx adkagent.CallbackContext, req *model.LLMRequest) error {

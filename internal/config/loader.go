@@ -96,6 +96,8 @@ func stringToDurationHook() mapstructure.DecodeHookFunc {
 
 func expandPaths(cfg *Config) {
 	cfg.Workspace = os.ExpandEnv(cfg.Workspace)
+	cfg.Bus.Path = os.ExpandEnv(cfg.Bus.Path)
+	cfg.Bus.AuditLog = os.ExpandEnv(cfg.Bus.AuditLog)
 	cfg.Reflect.Scheduler.TasksDir = os.ExpandEnv(cfg.Reflect.Scheduler.TasksDir)
 	for i, path := range cfg.Skills.Paths {
 		cfg.Skills.Paths[i] = os.ExpandEnv(path)
@@ -109,6 +111,12 @@ func expandPaths(cfg *Config) {
 }
 
 func normalizePaths(cfg *Config) {
+	if cfg.Bus.Path != "" && !filepath.IsAbs(cfg.Bus.Path) {
+		cfg.Bus.Path = filepath.Join(cfg.Workspace, cfg.Bus.Path)
+	}
+	if cfg.Bus.AuditLog != "" && !filepath.IsAbs(cfg.Bus.AuditLog) {
+		cfg.Bus.AuditLog = filepath.Join(cfg.Workspace, cfg.Bus.AuditLog)
+	}
 	for i, path := range cfg.Skills.Paths {
 		if path == "" || filepath.IsAbs(path) {
 			continue
@@ -181,6 +189,12 @@ func applyDefaults(cfg *Config, skillsEnabledSet bool, loopDetectionEnabledSet b
 	}
 	if cfg.Expert.MaxCount == 0 {
 		cfg.Expert.MaxCount = 10
+	}
+	if cfg.Bus.AuditLog == "" {
+		cfg.Bus.AuditLog = filepath.Join(cfg.Workspace, "bus", "events.jsonl")
+	}
+	if cfg.Bus.Queue.MaxSize == 0 {
+		cfg.Bus.Queue.MaxSize = 100
 	}
 	if cfg.Reflect.Autonomous.IdleTimeout == 0 {
 		cfg.Reflect.Autonomous.IdleTimeout = Duration(30 * time.Minute)

@@ -10,9 +10,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	supermanagent "github.com/ai4next/superman/internal/agent"
+	"github.com/ai4next/superman/internal/bus"
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/global"
-	supermanruntime "github.com/ai4next/superman/internal/runtime"
 	supermansession "github.com/ai4next/superman/internal/session"
 	"github.com/ai4next/superman/internal/tui/components"
 	"google.golang.org/adk/runner"
@@ -26,21 +26,21 @@ func TestApplyRuntimeEventCompletesRun(t *testing.T) {
 		toolStarts: make(map[string]time.Time),
 	}
 
-	m.applyRuntimeEvent(supermanruntime.Event{Type: supermanruntime.EventTextDelta, Text: "hello"})
-	m.applyRuntimeEvent(supermanruntime.Event{
-		Type:     supermanruntime.EventToolCallStarted,
+	m.applyRuntimeEvent(bus.Event{Type: bus.EventTextDelta, Text: "hello"})
+	m.applyRuntimeEvent(bus.Event{
+		Type:     bus.EventToolCallStarted,
 		ToolID:   "tool-1",
 		ToolName: "write",
 		Args:     `{"path":"a.txt"}`,
 	})
-	m.applyRuntimeEvent(supermanruntime.Event{
-		Type:     supermanruntime.EventToolCallFinished,
+	m.applyRuntimeEvent(bus.Event{
+		Type:     bus.EventToolCallFinished,
 		ToolID:   "tool-1",
 		ToolName: "write",
 		Status:   "done",
 		Result:   `{"ok":true}`,
 	})
-	m.applyRuntimeEvent(supermanruntime.Event{Type: supermanruntime.EventRunFinished})
+	m.applyRuntimeEvent(bus.Event{Type: bus.EventRunFinished})
 
 	if m.running {
 		t.Fatal("run should be finished")
@@ -62,23 +62,23 @@ func TestApplyRuntimeEventKeepsInterleavedOutputOrder(t *testing.T) {
 		toolStarts: make(map[string]time.Time),
 	}
 
-	m.applyRuntimeEvent(supermanruntime.Event{Type: supermanruntime.EventTextDelta, Text: "before "})
-	m.applyRuntimeEvent(supermanruntime.Event{Type: supermanruntime.EventTextDelta, Text: "tool"})
-	m.applyRuntimeEvent(supermanruntime.Event{
-		Type:     supermanruntime.EventToolCallStarted,
+	m.applyRuntimeEvent(bus.Event{Type: bus.EventTextDelta, Text: "before "})
+	m.applyRuntimeEvent(bus.Event{Type: bus.EventTextDelta, Text: "tool"})
+	m.applyRuntimeEvent(bus.Event{
+		Type:     bus.EventToolCallStarted,
 		ToolID:   "tool-1",
 		ToolName: "read",
 		Args:     `{"path":"a.txt"}`,
 	})
-	m.applyRuntimeEvent(supermanruntime.Event{
-		Type:     supermanruntime.EventToolCallFinished,
+	m.applyRuntimeEvent(bus.Event{
+		Type:     bus.EventToolCallFinished,
 		ToolID:   "tool-1",
 		ToolName: "read",
 		Status:   "done",
 		Result:   `{"ok":true}`,
 	})
-	m.applyRuntimeEvent(supermanruntime.Event{Type: supermanruntime.EventTextDelta, Text: " after"})
-	m.applyRuntimeEvent(supermanruntime.Event{Type: supermanruntime.EventRunFinished})
+	m.applyRuntimeEvent(bus.Event{Type: bus.EventTextDelta, Text: " after"})
+	m.applyRuntimeEvent(bus.Event{Type: bus.EventRunFinished})
 
 	if len(m.messages) != 3 {
 		t.Fatalf("messages len = %d, want 3: %+v", len(m.messages), m.messages)
@@ -100,7 +100,7 @@ func TestApplyRuntimeEventCancelsRun(t *testing.T) {
 		toolStarts:     make(map[string]time.Time),
 		chatCacheDirty: false,
 	}
-	m.applyRuntimeEvent(supermanruntime.Event{Type: supermanruntime.EventRunCanceled})
+	m.applyRuntimeEvent(bus.Event{Type: bus.EventRunCanceled})
 	if m.running {
 		t.Fatal("running should be false after cancel")
 	}
@@ -115,13 +115,13 @@ func TestPermissionRequestSurvivesRunFinished(t *testing.T) {
 		toolStarts: make(map[string]time.Time),
 	}
 
-	m.applyRuntimeEvent(supermanruntime.Event{
-		Type:     supermanruntime.EventPermissionRequested,
+	m.applyRuntimeEvent(bus.Event{
+		Type:     bus.EventPermissionRequested,
 		ToolID:   "confirm-1",
 		ToolName: "write",
 		Args:     `{"path":"a.txt"}`,
 	})
-	m.applyRuntimeEvent(supermanruntime.Event{Type: supermanruntime.EventRunFinished})
+	m.applyRuntimeEvent(bus.Event{Type: bus.EventRunFinished})
 
 	if m.pendingConfirm == nil || m.pendingConfirm.ID != "confirm-1" {
 		t.Fatalf("pending confirmation = %+v", m.pendingConfirm)

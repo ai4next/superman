@@ -8,9 +8,9 @@ import (
 	"time"
 
 	supermanagent "github.com/ai4next/superman/internal/agent"
+	"github.com/ai4next/superman/internal/bus"
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/global"
-	supermanruntime "github.com/ai4next/superman/internal/runtime"
 	supermansession "github.com/ai4next/superman/internal/session"
 	adkmodel "google.golang.org/adk/model"
 	"google.golang.org/adk/runner"
@@ -110,7 +110,7 @@ func TestExecutorRunPersistsReferencesAndAudit(t *testing.T) {
 		t.Fatalf("refs = %#v", refs)
 	}
 
-	events, err := supermanruntime.ReadAuditLog(filepath.Join(workspace, "runtime", "events.jsonl"), supermanruntime.AuditFilter{
+	events, err := bus.ReadAuditLog(filepath.Join(workspace, "bus", "events.jsonl"), bus.AuditFilter{
 		SessionID: "1",
 	})
 	if err != nil {
@@ -139,16 +139,16 @@ func TestIdleWatcherAndSchedulerUseExecutor(t *testing.T) {
 	scheduler := NewSchedulerWithPlugins(a, svc, pluginCfg)
 	scheduler.executeTask(context.Background(), ScheduleTask{Name: "daily", Prompt: "reflect on progress", Enabled: true})
 
-	events, err := supermanruntime.ReadAuditLog(filepath.Join(workspace, "runtime", "events.jsonl"), supermanruntime.AuditFilter{})
+	events, err := bus.ReadAuditLog(filepath.Join(workspace, "bus", "events.jsonl"), bus.AuditFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var reflectFinished, schedulerFinished bool
 	for _, event := range events {
-		if event.Type == supermanruntime.EventRunFinished && event.SessionID == "1" {
+		if event.Type == bus.EventRunFinished && event.SessionID == "1" {
 			reflectFinished = true
 		}
-		if event.Type == supermanruntime.EventRunFinished && event.SessionID == "1" {
+		if event.Type == bus.EventRunFinished && event.SessionID == "1" {
 			schedulerFinished = true
 		}
 	}
@@ -176,16 +176,16 @@ func reflectTestConfig(workspace string) *config.Config {
 	}
 }
 
-func assertLifecycleEvents(t *testing.T, events []supermanruntime.Event) {
+func assertLifecycleEvents(t *testing.T, events []bus.Event) {
 	t.Helper()
 	var hasStarted, hasText, hasFinished bool
 	for _, event := range events {
 		switch event.Type {
-		case supermanruntime.EventRunStarted:
+		case bus.EventRunStarted:
 			hasStarted = true
-		case supermanruntime.EventTextDelta:
+		case bus.EventTextDelta:
 			hasText = event.Text == "reflect result"
-		case supermanruntime.EventRunFinished:
+		case bus.EventRunFinished:
 			hasFinished = true
 		}
 	}

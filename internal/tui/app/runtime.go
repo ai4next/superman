@@ -13,6 +13,7 @@ import (
 	"google.golang.org/adk/tool/toolconfirmation"
 	"google.golang.org/genai"
 
+	"github.com/ai4next/superman/internal/bus"
 	supermanruntime "github.com/ai4next/superman/internal/runtime"
 	"github.com/ai4next/superman/internal/tui/components"
 )
@@ -60,11 +61,11 @@ func (m *Model) appendAgentDelta(text string) {
 	}
 	m.chatCacheDirty = true
 }
-func (m *Model) applyRuntimeEvent(event supermanruntime.Event) {
+func (m *Model) applyRuntimeEvent(event bus.Event) {
 	switch event.Type {
-	case supermanruntime.EventTextDelta:
+	case bus.EventTextDelta:
 		m.appendAgentDelta(event.Text)
-	case supermanruntime.EventToolCallStarted:
+	case bus.EventToolCallStarted:
 		m.toolStarts[event.ToolID] = time.Now()
 		m.currentTool = event.ToolName
 		m.messages = append(m.messages, components.Message{
@@ -75,7 +76,7 @@ func (m *Model) applyRuntimeEvent(event supermanruntime.Event) {
 			Status: "running",
 		})
 		m.chatCacheDirty = true
-	case supermanruntime.EventToolCallFinished:
+	case bus.EventToolCallFinished:
 		update := components.Message{
 			Role:   "tool",
 			Tool:   event.ToolName,
@@ -89,7 +90,7 @@ func (m *Model) applyRuntimeEvent(event supermanruntime.Event) {
 		m.updateToolMessage(update)
 		m.refreshSessionFiles()
 		m.chatCacheDirty = true
-	case supermanruntime.EventPermissionRequested:
+	case bus.EventPermissionRequested:
 		m.pendingConfirm = &pendingConfirmation{
 			ID:       event.ToolID,
 			ToolName: event.ToolName,
@@ -104,18 +105,18 @@ func (m *Model) applyRuntimeEvent(event supermanruntime.Event) {
 			Content: "Permission required: press y to allow once, n to deny.",
 		})
 		m.chatCacheDirty = true
-	case supermanruntime.EventPermissionGranted:
+	case bus.EventPermissionGranted:
 		m.resolvePermissionMessage(event.ToolID, "granted", "Permission granted")
 		m.pendingConfirm = nil
 		m.chatCacheDirty = true
-	case supermanruntime.EventPermissionDenied:
+	case bus.EventPermissionDenied:
 		m.resolvePermissionMessage(event.ToolID, "denied", "Permission denied")
 		m.pendingConfirm = nil
 		m.chatCacheDirty = true
-	case supermanruntime.EventRunFinished:
+	case bus.EventRunFinished:
 		m.refreshSessionFiles()
 		m.finishRun()
-	case supermanruntime.EventRunFailed:
+	case bus.EventRunFailed:
 		content := event.Error
 		if content == "" {
 			content = "run failed"
@@ -124,11 +125,11 @@ func (m *Model) applyRuntimeEvent(event supermanruntime.Event) {
 		m.chatCacheDirty = true
 		m.refreshSessionFiles()
 		m.finishRun()
-	case supermanruntime.EventRunCanceled:
+	case bus.EventRunCanceled:
 		m.messages = append(m.messages, components.Message{Role: "system", Content: "Run canceled"})
 		m.chatCacheDirty = true
 		m.finishRun()
-	case supermanruntime.EventSessionCompacted:
+	case bus.EventSessionCompacted:
 		m.messages = append(m.messages, components.Message{Role: "system", Content: fmt.Sprintf("Session compacted (%d messages summarized)", event.Count)})
 		m.chatCacheDirty = true
 	}
@@ -154,7 +155,7 @@ func (m *Model) cancelRun() (tea.Model, tea.Cmd) {
 		m.runtimeCancel = nil
 	}
 	if m.runtimeBroker != nil {
-		m.runtimeBroker.Publish(supermanruntime.RunCanceled(m.sessionID, ""))
+		_ = m.runtimeBroker.Publish(context.Background(), bus.RunCanceled(m.sessionID, ""))
 	}
 	return m, nil
 }
@@ -187,7 +188,7 @@ func (m *Model) resumeConfirmation(confirmed bool) (tea.Model, tea.Cmd) {
 	clear(m.toolStarts)
 	m.chatCacheDirty = true
 
-	return m.startRuntime(func(ctx context.Context, broker *supermanruntime.Broker) tea.Cmd {
+	return m.startRuntime(func(ctx context.Context, broker bus.Broker) tea.Cmd {
 		return startConfirmation(ctx, m.runner, broker, m.cfg.Session.AppName, m.sessionID, pending.ID, confirmed, m.compactor())
 	})
 }
@@ -213,7 +214,7 @@ func (m *Model) processInput() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	return m.startRuntime(func(ctx context.Context, broker *supermanruntime.Broker) tea.Cmd {
+	return m.startRuntime(func(ctx context.Context, broker bus.Broker) tea.Cmd {
 		return startAgent(ctx, m.runner, broker, m.cfg.Session.AppName, m.sessionID, prompt, m.compactor())
 	})
 }
@@ -231,14 +232,17 @@ func (m *Model) ensureRunner() error {
 	})
 	return err
 }
-func (m *Model) startRuntime(command func(context.Context, *supermanruntime.Broker) tea.Cmd) (tea.Model, tea.Cmd) {
-	m.runtimeBroker = supermanruntime.NewBroker()
+func (m *Model) startRuntime(command func(context.Context, bus.Broker) tea.Cmd) (tea.Model, tea.Cmd) {
+	m.runtimeBroker = bus.NewMemoryBroker()
 	runCtx, cancel := context.WithCancel(context.Background())
 	m.runtimeCancel = cancel
 	if m.auditLogger != nil {
-		m.auditLogger.Subscribe(runCtx, m.runtimeBroker)
+		_ = m.auditLogger.Subscribe(runCtx, m.runtimeBroker, bus.EventFilter{})
 	}
-	runtimeCh := m.runtimeBroker.Subscribe(runCtx)
+	runtimeCh, err := m.runtimeBroker.Subscribe(runCtx, bus.EventFilter{})
+	if err != nil {
+		runtimeCh = closedRuntimeEventChannel()
+	}
 	m.runtimeCh = runtimeCh
 	return m, tea.Batch(command(runCtx, m.runtimeBroker), waitForRuntimeEvent(runtimeCh), pulseTick())
 }
@@ -247,7 +251,7 @@ func (m *Model) startNextQueuedPrompt() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	return m.startRuntime(func(ctx context.Context, broker *supermanruntime.Broker) tea.Cmd {
+	return m.startRuntime(func(ctx context.Context, broker bus.Broker) tea.Cmd {
 		return startAgent(ctx, m.runner, broker, m.cfg.Session.AppName, m.sessionID, prompt, m.compactor())
 	})
 }
@@ -284,30 +288,35 @@ func (m *Model) prepareNextQueuedPrompt() (string, bool) {
 func (m *Model) compactor() supermanruntime.Compactor {
 	return supermanruntime.SessionCompactor(m.sessionService, m.cfg.Session.MaxTurns)
 }
-func startAgent(ctx context.Context, run *runner.Runner, broker *supermanruntime.Broker, appName, sessionID, prompt string, compactor supermanruntime.Compactor) tea.Cmd {
+func startAgent(ctx context.Context, run *runner.Runner, broker bus.Broker, appName, sessionID, prompt string, compactor supermanruntime.Compactor) tea.Cmd {
 	return func() tea.Msg {
 		go runAgent(ctx, run, broker, appName, sessionID, prompt, compactor)
 		return nil
 	}
 }
-func startConfirmation(ctx context.Context, run *runner.Runner, broker *supermanruntime.Broker, appName, sessionID, confirmationID string, confirmed bool, compactor supermanruntime.Compactor) tea.Cmd {
+func startConfirmation(ctx context.Context, run *runner.Runner, broker bus.Broker, appName, sessionID, confirmationID string, confirmed bool, compactor supermanruntime.Compactor) tea.Cmd {
 	return func() tea.Msg {
 		go runConfirmation(ctx, run, broker, appName, sessionID, confirmationID, confirmed, compactor)
 		return nil
 	}
 }
-func waitForRuntimeEvent(ch <-chan supermanruntime.Event) tea.Cmd {
+func waitForRuntimeEvent(ch <-chan bus.Event) tea.Cmd {
 	return func() tea.Msg {
 		msg, ok := <-ch
 		return runtimeEventMsg{Event: msg, OK: ok}
 	}
+}
+func closedRuntimeEventChannel() <-chan bus.Event {
+	ch := make(chan bus.Event)
+	close(ch)
+	return ch
 }
 func pulseTick() tea.Cmd {
 	return tea.Tick(350*time.Millisecond, func(time.Time) tea.Msg {
 		return pulseMsg{}
 	})
 }
-func runAgent(ctx context.Context, run *runner.Runner, broker *supermanruntime.Broker, appName, sessionID, prompt string, compactor supermanruntime.Compactor) {
+func runAgent(ctx context.Context, run *runner.Runner, broker bus.Broker, appName, sessionID, prompt string, compactor supermanruntime.Compactor) {
 	msg := genai.NewContentFromText(prompt, genai.RoleUser)
 	for _, evtErr := range supermanruntime.StreamRun(ctx, run, supermanruntime.RunRequest{
 		AppName:    appName,
@@ -328,7 +337,7 @@ func runAgent(ctx context.Context, run *runner.Runner, broker *supermanruntime.B
 		}
 	}
 }
-func runConfirmation(ctx context.Context, run *runner.Runner, broker *supermanruntime.Broker, appName, sessionID, confirmationID string, confirmed bool, compactor supermanruntime.Compactor) {
+func runConfirmation(ctx context.Context, run *runner.Runner, broker bus.Broker, appName, sessionID, confirmationID string, confirmed bool, compactor supermanruntime.Compactor) {
 	content := genai.NewContentFromFunctionResponse(
 		toolconfirmation.FunctionCallName,
 		map[string]any{"confirmed": confirmed},

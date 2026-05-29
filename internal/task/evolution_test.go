@@ -12,8 +12,9 @@ import (
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/global"
 	"github.com/ai4next/superman/internal/hook"
-	supermanruntime "github.com/ai4next/superman/internal/runtime"
 	adkmodel "google.golang.org/adk/model"
+
+	"github.com/ai4next/superman/internal/bus"
 )
 
 type evolutionFakeLLM struct{}
@@ -28,17 +29,20 @@ func TestEvolutionLoopPublishesFailedEvent(t *testing.T) {
 	global.SetConfig(&config.Config{Workspace: t.TempDir()})
 	t.Cleanup(func() { global.SetConfig(nil) })
 
-	broker := supermanruntime.NewBroker()
+	broker := bus.NewMemoryBroker()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	events := broker.Subscribe(ctx)
+	events, err := broker.Subscribe(ctx, bus.EventFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	e := &Evolution{signal: make(chan hook.EvolutionSignal, 1)}
 	e.SetBroker(broker)
 	go e.Loop(ctx)
 	e.signal <- hook.EvolutionSignal{SessionID: "s1", Role: "superman"}
 
-	var got []supermanruntime.Event
+	var got []bus.Event
 	deadline := time.After(time.Second)
 	for len(got) < 2 {
 		select {
@@ -48,10 +52,10 @@ func TestEvolutionLoopPublishesFailedEvent(t *testing.T) {
 			t.Fatalf("timed out waiting for evolution events: %+v", got)
 		}
 	}
-	if got[0].Type != supermanruntime.EventEvolutionStarted {
+	if got[0].Type != bus.EventEvolutionStarted {
 		t.Fatalf("first event = %+v", got[0])
 	}
-	if got[1].Type != supermanruntime.EventEvolutionFailed || strings.TrimSpace(got[1].Error) == "" {
+	if got[1].Type != bus.EventEvolutionFailed || strings.TrimSpace(got[1].Error) == "" {
 		t.Fatalf("second event = %+v", got[1])
 	}
 }

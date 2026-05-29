@@ -61,7 +61,9 @@ VERSION=v0.0.1 INSTALL_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://raw.gi
 - **即时通信软件接入** — 以常驻 server 方式接入 Telegram、飞书/Lark、企业微信、微信个人号、QQ、钉钉、Slack、Discord、LINE、微博等平台
 - **持久会话** — SQLite-backed session/message store，配套精简 `U/A/T/O` 进化日志，支持自动压缩、文件 revision tracking、session 导入导出
 - **运行时审计** — 工具调用、文本增量、错误、进化等事件流式写入可查询 JSONL audit log
+- **进程内任务队列** — 专家与编排任务使用每个 Superman 进程内的 Go channel 队列，本机同时启动多个 Superman 时不会争抢共享队列数据库
 - **扁平文件记忆** — 全局事实（L1）和 SOP 文件（L2）直接存储在 workspace 中
+- **Plan-Execute Agent 循环** — 每个 Agent 都按 `planner -> loop(executor -> replanner)` 组装，先规划，再按步骤执行，并在完成或达到迭代上限前持续复盘调整
 - **专家委托** — 将任务分派给拥有独立记忆和持久会话的专家子 Agent
 - **分层自进化** — agent evolver 从完成会话中改进 Superman/专家；meta evolver 只从 evolver 会话中改进进化过程本身
 - **插件系统** — 统一 run/model/tool 日志与会话回收
@@ -178,8 +180,13 @@ reflect:
 
 # 专家培养/委托
 expert:
-  enabled: true
   max_count: 10
+
+# 本地事件/任务总线
+bus:
+  audit_log: ${HOME}/.sm/bus/events.jsonl
+  queue:
+    max_size: 100
 
 plugins:
   - name: session_reaper
@@ -189,6 +196,8 @@ plugins:
 `model.headers` 是可选配置，会随每次模型请求一起发送，适合接入需要自定义请求头的 OpenAI-compatible 网关。
 
 环境变量可以覆盖配置：`SUPERMAN_MODEL_PROVIDER=openai`、`SUPERMAN_MODEL_API_KEY=sk-...` 等。
+
+`bus.queue` 是进程内队列，只用于当前 Superman 进程里的本地异步 delegate / orchestrator 工作，不持久化，也不在多个同时运行的 Superman 进程之间共享。`bus.audit_log` 是持久化 JSONL 事件审计镜像。
 
 ### 即时通信接入
 
@@ -247,6 +256,20 @@ sm im weixin setup
 | `delegate` | 将任务委托给专家独立执行 |
 
 `delegate` 会在每次调用模型前动态判断，只有启用专家委托且至少存在一个专家时才会加载。专家存储在 `experts/{expert_name}` 目录下，目录名就是专家名，`soul.md` 是专家的系统提示词。
+
+## 🧠 Agent Runtime
+
+Superman 会用同一套 Plan-Execute 结构构建主 Agent 和每个专家 Agent：
+
+```text
+{name}                         # sequential root
+├── {name}_planner              # 生成初始计划
+└── {name}_plan_execute_loop     # 有上限的循环
+    ├── {name}_executor         # 执行当前计划中的第一个未完成步骤
+    └── {name}_replanner        # 评估进度、更新计划，或退出循环
+```
+
+planner 将当前计划写入 session state。executor 读取计划、普通运行上下文和工具，只执行第一个未完成步骤，并写入步骤结果。replanner 读取当前计划和最新 executor 结果，判断是输出调整后的新计划，还是在任务完成时调用 `exit_loop`。文本事件会保留 ADK author 和 event id，因此调用方可以展示 planner/replanner 进度，同时从最后一次 executor 事件收集最终结果。
 
 ## 🔌 Hooks & Skills
 
@@ -329,7 +352,9 @@ superman/
 ├── main.go                          # 入口
 ├── internal/
 │   ├── agent/
-│   │   ├── agent.go                 # Agent 工厂，注入 memory/SOP/context
+│   │   ├── agent.go                 # Agent 工厂入口与共享 wiring
+│   │   ├── orchestrator.go          # Plan-Execute ADK Agent 树组装
+│   │   ├── builtin.go               # Executor prompt/context/tool 准备
 │   │   ├── context.go               # Agent run 上下文构建器
 │   │   ├── tool.go                  # 动态内建工具/toolset 组装
 │   │   └── evolver.go               # Agent/meta 进化 Agent 工厂
@@ -346,7 +371,8 @@ superman/
 │   ├── memory/                      # 扁平文件记忆：全局事实与 SOP
 │   ├── session/                     # 持久 SessionService：SQLite + compact log、file tracking、references
 │   ├── store/                       # GORM/SQLite 持久化模型与读写
-│   ├── runtime/                     # 事件驱动 runtime 与 audit logging
+│   ├── runtime/                     # run 流式处理、session compact、loop detection
+│   ├── bus/                         # 进程内事件 broker、channel 任务队列、审计镜像
 │   ├── im/                          # 即时通信接入
 │   ├── plugin/                      # 插件注册中心 + 内建插件
 │   ├── hook/                        # Hook 管理器 + 脚本执行器
@@ -372,8 +398,8 @@ superman/
 ├── sessions/                             # 精简会话日志与 snapshots
 │   ├── <id>.log                          # LLM evolution projection
 │   └── snapshots/                        # 文件 revision snapshots
-├── runtime/
-│   └── events.jsonl                      # runtime audit event log
+├── bus/
+│   └── events.jsonl                      # 统一 bus/runtime 审计镜像；任务队列在进程内
 ├── evolution/                            # Agent evolver + meta evolver 运行时根目录
 │   ├── memory/                           # Evolver 自己的扁平文件记忆
 │   │   ├── l1.toml

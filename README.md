@@ -61,7 +61,9 @@ VERSION=v0.0.1 INSTALL_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://raw.gi
 - **Instant-messaging integration** — run a long-lived server that connects Superman to Telegram, Feishu/Lark, WeCom, Weixin, QQ, DingTalk, Slack, Discord, LINE, and Weibo
 - **Persistent sessions** — SQLite-backed session/message store with compact `U/A/T/O` evolution logs, automatic compaction, file revision tracking, and session export/import
 - **Runtime audit** — Events (tool calls, text delta, errors, evolutions) streamed to a queryable JSONL audit log
+- **In-process task queue** — expert and orchestration tasks use a Go channel queue inside each Superman process, so multiple local Superman instances do not contend for a shared queue database
 - **Flat-file memory** — global facts (L1) and SOP files (L2) stored directly in the workspace
+- **Plan-Execute agent loop** — every agent is assembled as `planner -> loop(executor -> replanner)`, so requests are planned, executed step by step, and replanned until completion or the iteration limit
 - **Expert delegation** — dispatch tasks to expert sub-agents with isolated memory and persistent sessions
 - **Layered self-evolution** — agent evolver improves Superman/experts from completed sessions; meta evolver improves only the evolution process from evolver sessions
 - **Plugin system** — unified run/model/tool logging and session reaper
@@ -119,6 +121,14 @@ tools:
     enabled: true
     timeout: 30s
 
+expert:
+  max_count: 10
+
+bus:
+  audit_log: ${HOME}/.sm/bus/events.jsonl
+  queue:
+    max_size: 100
+
 # Skill system — multiple paths supported
 skills:
   enabled: true
@@ -151,6 +161,8 @@ plugins:
 `model.headers` is optional and is forwarded with every model request, which is useful for custom OpenAI-compatible gateways.
 
 Environment variables override config: `SUPERMAN_MODEL_PROVIDER=openai`, `SUPERMAN_MODEL_API_KEY=sk-...`, etc.
+
+`bus.queue` is intentionally in-process. It is used for local async delegate/orchestration work inside the current Superman process and is not persisted or shared across simultaneously running Superman processes. `bus.audit_log` is the durable JSONL event mirror.
 
 ### Instant Messaging
 
@@ -208,7 +220,21 @@ The command prints a QR code in the terminal, waits for phone confirmation, prin
 | `ask` | Interrupt to ask the user a question |
 | `delegate` | Delegate a task to an expert for independent execution |
 
-`delegate` is loaded dynamically only when expert delegation is enabled and at least one expert is available. Experts are stored as directories under `experts/{expert_name}`; the directory name is the expert name and `soul.md` is the expert's system prompt.
+`delegate` is loaded dynamically when at least one expert is available. Experts are stored as directories under `experts/{expert_name}`; the directory name is the expert name and `soul.md` is the expert's system prompt.
+
+## 🧠 Agent Runtime
+
+Superman builds the main agent and every expert with the same Plan-Execute structure:
+
+```text
+{name}                         # sequential root
+├── {name}_planner              # produces the initial plan
+└── {name}_plan_execute_loop     # bounded loop
+    ├── {name}_executor         # executes the first unfinished plan step
+    └── {name}_replanner        # evaluates progress, updates the plan, or exits the loop
+```
+
+The planner stores the current plan in session state. The executor receives that plan plus normal runtime context and tools, executes only the first unfinished step, and stores the step result. The replanner reads the current plan and latest executor result, then either emits an adjusted plan or calls `exit_loop` when the task is complete. Text events keep the ADK author and event id so callers can display planner/replanner progress while collecting the final result from the last executor event.
 
 ## 🔌 Hooks & Skills
 
@@ -291,7 +317,9 @@ superman/
 ├── main.go                          # Entry point
 ├── internal/
 │   ├── agent/
-│   │   ├── agent.go                 # Agent factory with memory/SOP injection
+│   │   ├── agent.go                 # Agent factory entrypoint and shared wiring
+│   │   ├── orchestrator.go          # Plan-Execute ADK agent tree assembly
+│   │   ├── builtin.go               # Executor prompt/context/tool preparation
 │   │   ├── context.go               # Context builder for agent runs
 │   │   ├── tool.go                  # Dynamic built-in/toolset assembly
 │   │   └── evolver.go               # Agent/meta evolution agent factories
@@ -307,7 +335,8 @@ superman/
 │   ├── model/                       # Multi-provider LLM factory
 │   ├── memory/                      # Flat-file memory (L1 global facts, L2 SOP files)
 │   ├── session/                     # Persistent session manager with JSONL store, file tracking, references
-│   ├── runtime/                     # Event-driven runtime with audit logging
+│   ├── runtime/                     # Run streaming, session compaction, loop detection
+│   ├── bus/                         # In-process event broker, channel task queue, audit mirror
 │   ├── im/                          # Instant-messaging integration
 │   ├── plugin/                      # Plugin registry + built-ins
 │   ├── hook/                        # Hook manager + script runner
@@ -340,8 +369,8 @@ All runtime data is stored under `workspace` in `config.yaml`. If omitted, it de
 ├── sessions/                             # Compact session logs and snapshots
 │   ├── <id>.log                          # LLM evolution projection
 │   └── snapshots/                        # File revision snapshots
-├── runtime/
-│   └── events.jsonl                      # Runtime audit event log
+├── bus/
+│   └── events.jsonl                      # Unified bus/runtime audit mirror; task queue is in-process
 ├── evolution/                            # Agent evolver + meta evolver runtime root
 │   ├── memory/                           # Evolver's flat-file memory
 │   │   ├── l1.toml

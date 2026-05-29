@@ -16,6 +16,7 @@ import (
 	adksession "google.golang.org/adk/session"
 
 	"github.com/ai4next/superman/internal/agent"
+	"github.com/ai4next/superman/internal/bus"
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/expert"
 	"github.com/ai4next/superman/internal/global"
@@ -25,7 +26,6 @@ import (
 	"github.com/ai4next/superman/internal/memory"
 	supermanmodel "github.com/ai4next/superman/internal/model"
 	"github.com/ai4next/superman/internal/plugin"
-	supermanruntime "github.com/ai4next/superman/internal/runtime"
 	supermansession "github.com/ai4next/superman/internal/session"
 	"github.com/ai4next/superman/internal/task"
 	"github.com/ai4next/superman/internal/tool"
@@ -135,13 +135,19 @@ func serveIM(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("create evolution agent: %w", err)
 	}
-	evolutionBroker := supermanruntime.NewBroker()
+	evolutionBroker := bus.NewMemoryBroker()
 	evolution.SetBroker(evolutionBroker)
-	supermanruntime.NewAuditLogger(global.RuntimeEventsPath()).Subscribe(ctx, evolutionBroker)
+	if err := bus.NewAuditLogger(global.BusEventsPath()).Subscribe(ctx, evolutionBroker, bus.EventFilter{}); err != nil {
+		return fmt.Errorf("subscribe evolution audit logger: %w", err)
+	}
 	go evolution.Loop(ctx)
 
 	evolutionCh := evolution.SignalCh()
-	expertRegistry, delegateRunner := loadIMExperts(llm, evolutionCh)
+	expertRegistry, delegateRunner, closeExperts, err := loadIMExperts(ctx, llm, evolutionCh)
+	if err != nil {
+		return err
+	}
+	defer closeExperts()
 	a, adkPlugins, err := buildIMAgent(llm, cfg, memSvc, sessionService, expertRegistry, delegateRunner, evolutionCh)
 	if err != nil {
 		return err
@@ -171,17 +177,23 @@ func serveIM(ctx context.Context) error {
 	return client.Run(ctx)
 }
 
-func loadIMExperts(llm adkmodel.LLM, evolutionCh chan<- hook.EvolutionSignal) (*expert.Registry, tool.DelegateRunner) {
-	cfg := global.Config()
-	if !cfg.Expert.Enabled {
-		return nil, nil
-	}
+func loadIMExperts(ctx context.Context, llm adkmodel.LLM, evolutionCh chan<- hook.EvolutionSignal) (*expert.Registry, tool.DelegateRunner, func(), error) {
 	registry := expert.NewRegistry(global.ExpertsDir())
 	if err := registry.LoadFromDisk(); err != nil {
 		log.Printf("[expert] load warning: %v", err)
 	}
+	cfg := global.Config()
+	delegateQueue := bus.NewChannelQueue(cfg.Bus.Queue.MaxSize)
+	busBroker := bus.NewMemoryBroker()
+	delegateQueue.SetBroker(busBroker)
+	if err := bus.NewAuditLogger(global.BusEventsPath()).Subscribe(ctx, busBroker, bus.EventFilter{}); err != nil {
+		_ = delegateQueue.Close()
+		return nil, nil, nil, fmt.Errorf("subscribe bus audit logger: %w", err)
+	}
+	delegateService := newDelegateServiceWithQueue(llm, registry, delegateQueue, evolutionCh)
+	go delegateService.RunQueuedDelegates(ctx, "delegate-worker:im")
 	log.Printf("[expert] loaded %d experts", len(registry.List()))
-	return registry, newDelegateService(llm, registry, evolutionCh)
+	return registry, delegateService, func() { _ = delegateQueue.Close() }, nil
 }
 
 func buildIMAgent(llm adkmodel.LLM, cfg *config.Config, memSvc *memory.Service, sessionService adksession.Service, expertRegistry *expert.Registry, delegateRunner tool.DelegateRunner, evolutionCh chan<- hook.EvolutionSignal) (adkagent.Agent, []*adkplugin.Plugin, error) {

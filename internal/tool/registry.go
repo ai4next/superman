@@ -13,10 +13,12 @@ type ExpertManager interface {
 
 // Dependencies holds shared dependencies for all tools.
 type Dependencies struct {
-	Config         *config.Config
-	ExpertManager  ExpertManager `json:"-"`
-	DelegateRunner DelegateRunner
-	ExpertTools    bool
+	Config            *config.Config
+	ExpertManager     ExpertManager `json:"-"`
+	DelegateRunner    DelegateRunner
+	DelegateScheduler DelegateScheduler
+	Orchestrator      Orchestrator
+	ExpertTools       bool
 }
 
 // RegisterAll creates and returns all enabled tools.
@@ -44,12 +46,15 @@ func RegisterAll(deps Dependencies) []tool.Tool {
 	if shouldRegisterDelegateTool(deps) {
 		tools = append(tools, newDelegateTool(deps))
 	}
+	if deps.ExpertTools && deps.Orchestrator != nil {
+		tools = append(tools, newOrchestrateTool(deps))
+	}
 
 	return tools
 }
 
 func shouldRegisterDelegateTool(deps Dependencies) bool {
-	if !deps.ExpertTools || deps.DelegateRunner == nil || deps.ExpertManager == nil {
+	if !deps.ExpertTools || (deps.DelegateRunner == nil && deps.DelegateScheduler == nil) || deps.ExpertManager == nil {
 		return false
 	}
 	return len(deps.ExpertManager.List()) > 0

@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ai4next/superman/internal/bus"
 	"github.com/ai4next/superman/internal/global"
-	supermanruntime "github.com/ai4next/superman/internal/runtime"
 )
 
 var (
@@ -48,7 +48,7 @@ var runtimeSummaryCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return writeRuntimeSummary(os.Stdout, supermanruntime.SummarizeAuditEvents(events), runtimeJSON)
+		return writeRuntimeSummary(os.Stdout, bus.SummarizeAuditEvents(events), runtimeJSON)
 	},
 }
 
@@ -61,12 +61,12 @@ func init() {
 	runtimeCmd.AddCommand(runtimeEventsCmd, runtimeSummaryCmd)
 }
 
-func readRuntimeAuditEvents() ([]supermanruntime.Event, error) {
+func readRuntimeAuditEvents() ([]bus.Event, error) {
 	types, err := parseRuntimeEventTypes(runtimeTypes)
 	if err != nil {
 		return nil, err
 	}
-	return supermanruntime.ReadAuditLog(global.RuntimeEventsPath(), supermanruntime.AuditFilter{
+	return bus.ReadAuditLog(global.BusEventsPath(), bus.AuditFilter{
 		SessionID: strings.TrimSpace(runtimeSession),
 		RunID:     strings.TrimSpace(runtimeRun),
 		Types:     types,
@@ -74,7 +74,7 @@ func readRuntimeAuditEvents() ([]supermanruntime.Event, error) {
 	})
 }
 
-func writeRuntimeEvents(w io.Writer, events []supermanruntime.Event, asJSON bool) error {
+func writeRuntimeEvents(w io.Writer, events []bus.Event, asJSON bool) error {
 	if asJSON {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
@@ -98,7 +98,7 @@ func writeRuntimeEvents(w io.Writer, events []supermanruntime.Event, asJSON bool
 	return tw.Flush()
 }
 
-func writeRuntimeSummary(w io.Writer, summary supermanruntime.AuditSummary, asJSON bool) error {
+func writeRuntimeSummary(w io.Writer, summary bus.AuditSummary, asJSON bool) error {
 	if asJSON {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
@@ -118,15 +118,15 @@ func writeRuntimeSummary(w io.Writer, summary supermanruntime.AuditSummary, asJS
 	return nil
 }
 
-func parseRuntimeEventTypes(value string) ([]supermanruntime.EventType, error) {
+func parseRuntimeEventTypes(value string) ([]bus.EventType, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return nil, nil
 	}
 	parts := strings.Split(value, ",")
-	out := make([]supermanruntime.EventType, 0, len(parts))
+	out := make([]bus.EventType, 0, len(parts))
 	for _, part := range parts {
-		typ := supermanruntime.EventType(strings.TrimSpace(part))
+		typ := bus.EventType(strings.TrimSpace(part))
 		if typ == "" {
 			continue
 		}
@@ -135,21 +135,21 @@ func parseRuntimeEventTypes(value string) ([]supermanruntime.EventType, error) {
 	return out, nil
 }
 
-func runtimeEventDetail(event supermanruntime.Event) string {
+func runtimeEventDetail(event bus.Event) string {
 	switch event.Type {
-	case supermanruntime.EventTextDelta:
+	case bus.EventTextDelta:
 		return singleLine(event.Text)
-	case supermanruntime.EventToolCallStarted:
+	case bus.EventToolCallStarted:
 		return firstNonEmpty(event.ToolName, event.ToolID) + " " + singleLine(event.Args)
-	case supermanruntime.EventToolCallFinished:
+	case bus.EventToolCallFinished:
 		return strings.TrimSpace(firstNonEmpty(event.ToolName, event.ToolID) + " " + event.Status + " " + singleLine(event.Result))
-	case supermanruntime.EventPermissionRequested, supermanruntime.EventPermissionGranted, supermanruntime.EventPermissionDenied:
+	case bus.EventPermissionRequested, bus.EventPermissionGranted, bus.EventPermissionDenied:
 		return strings.TrimSpace(firstNonEmpty(event.ToolName, event.ToolID) + " " + event.Status)
-	case supermanruntime.EventRunFailed, supermanruntime.EventEvolutionFailed:
+	case bus.EventRunFailed, bus.EventEvolutionFailed:
 		return event.Error
-	case supermanruntime.EventEvolutionFinished:
+	case bus.EventEvolutionFinished:
 		return event.Path
-	case supermanruntime.EventSessionCompacted:
+	case bus.EventSessionCompacted:
 		return fmt.Sprintf("messages=%d", event.Count)
 	default:
 		return firstNonEmpty(event.Error, event.ToolName, event.Path, event.Role)
@@ -171,7 +171,7 @@ func writeRuntimeCountMap(w io.Writer, title string, counts map[string]int) {
 	}
 }
 
-func eventTypeCountMap(in map[supermanruntime.EventType]int) map[string]int {
+func eventTypeCountMap(in map[bus.EventType]int) map[string]int {
 	out := make(map[string]int, len(in))
 	for key, value := range in {
 		out[string(key)] = value

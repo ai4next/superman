@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+
+	"github.com/ai4next/superman/internal/bus"
 )
 
 func TestLoopDetectorDetectsRepeatedToolInteractions(t *testing.T) {
@@ -57,16 +59,16 @@ func TestNewLoopDetectorDisabled(t *testing.T) {
 
 func observeTool(detector *LoopDetector, i int, name, args, result string) error {
 	toolID := fmt.Sprintf("tool-%d", i)
-	if err := detector.Observe(Event{
-		Type:     EventToolCallStarted,
+	if err := detector.Observe(bus.Event{
+		Type:     bus.EventToolCallStarted,
 		ToolID:   toolID,
 		ToolName: name,
 		Args:     args,
 	}); err != nil {
 		return err
 	}
-	return detector.Observe(Event{
-		Type:     EventToolCallFinished,
+	return detector.Observe(bus.Event{
+		Type:     bus.EventToolCallFinished,
 		ToolID:   toolID,
 		ToolName: name,
 		Result:   result,
