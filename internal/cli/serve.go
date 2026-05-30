@@ -11,12 +11,12 @@ import (
 	"google.golang.org/adk/runner"
 
 	"github.com/ai4next/superman/internal/agent"
+	"github.com/ai4next/superman/internal/bus"
 	"github.com/ai4next/superman/internal/expert"
 	"github.com/ai4next/superman/internal/global"
 	"github.com/ai4next/superman/internal/memory"
 	"github.com/ai4next/superman/internal/model"
 	"github.com/ai4next/superman/internal/plugin"
-	supermanruntime "github.com/ai4next/superman/internal/runtime"
 	supermansession "github.com/ai4next/superman/internal/session"
 	"github.com/ai4next/superman/internal/task"
 	"github.com/ai4next/superman/internal/tool"
@@ -49,9 +49,11 @@ func RunServe(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("create evolution agent: %w", err)
 	}
-	evolutionBroker := supermanruntime.NewBroker()
+	evolutionBroker := bus.NewMemoryBroker()
 	evolution.SetBroker(evolutionBroker)
-	supermanruntime.NewAuditLogger(global.RuntimeEventsPath()).Subscribe(ctx, evolutionBroker)
+	if err := bus.NewAuditLogger(global.BusEventsPath()).Subscribe(ctx, evolutionBroker, bus.EventFilter{}); err != nil {
+		return fmt.Errorf("subscribe evolution audit logger: %w", err)
+	}
 	go evolution.Loop(ctx)
 
 	evolutionCh := evolution.SignalCh()
@@ -59,14 +61,21 @@ func RunServe(cmd *cobra.Command, args []string) error {
 	// Expert Registry
 	var expertRegistry *expert.Registry
 	var delegateRunner tool.DelegateRunner
-	if cfg.Expert.Enabled {
-		expertRegistry = expert.NewRegistry(global.ExpertsDir())
-		if err := expertRegistry.LoadFromDisk(); err != nil {
-			log.Printf("[expert] load warning: %v", err)
-		}
-		delegateRunner = newDelegateService(llm, expertRegistry, evolutionCh)
-		log.Printf("[expert] loaded %d experts", len(expertRegistry.List()))
+	expertRegistry = expert.NewRegistry(global.ExpertsDir())
+	if err := expertRegistry.LoadFromDisk(); err != nil {
+		log.Printf("[expert] load warning: %v", err)
 	}
+	delegateQueue := bus.NewChannelQueue(cfg.Bus.Queue.MaxSize)
+	defer delegateQueue.Close()
+	busBroker := bus.NewMemoryBroker()
+	delegateQueue.SetBroker(busBroker)
+	if err := bus.NewAuditLogger(global.BusEventsPath()).Subscribe(ctx, busBroker, bus.EventFilter{}); err != nil {
+		return fmt.Errorf("subscribe bus audit logger: %w", err)
+	}
+	delegateService := newDelegateServiceWithQueue(llm, expertRegistry, delegateQueue, evolutionCh)
+	go delegateService.RunQueuedDelegates(ctx, "delegate-worker:tui")
+	delegateRunner = delegateService
+	log.Printf("[expert] loaded %d experts", len(expertRegistry.List()))
 
 	var adkPlugins []*adkplugin.Plugin
 	a, extraPlugins, err := agent.New(llm, cfg, memSvc, sessionService, expertRegistry, delegateRunner, evolutionCh)

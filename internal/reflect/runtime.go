@@ -11,6 +11,7 @@ import (
 	adksession "google.golang.org/adk/session"
 	"google.golang.org/genai"
 
+	"github.com/ai4next/superman/internal/bus"
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/global"
 	"github.com/ai4next/superman/internal/runtime"
@@ -48,8 +49,9 @@ func (e executor) run(ctx context.Context, cfg *config.Config, userID, sessionID
 		return "", err
 	}
 
-	auditLogger := runtime.NewAuditLogger(global.RuntimeEventsPath())
+	auditLogger := bus.NewAuditLogger(global.BusEventsPath())
 	var response strings.Builder
+	var responseEventID string
 	for event, evtErr := range runtime.StreamRun(ctx, r, req, nil) {
 		if err := auditLogger.Write(event); err != nil {
 			log.Printf("[%s] audit write failed: %v", logPrefix, err)
@@ -57,11 +59,12 @@ func (e executor) run(ctx context.Context, cfg *config.Config, userID, sessionID
 		if evtErr != nil {
 			return response.String(), evtErr
 		}
-		if event.Type == runtime.EventTextDelta {
-			response.WriteString(event.Text)
-			if event.Text != "" {
-				log.Printf("[%s] output: %s", logPrefix, truncate(event.Text, 200))
+		if event.Type == bus.EventTextDelta && event.Author == e.agent.Name()+"_executor" {
+			if event.EventID != "" && event.EventID != responseEventID {
+				response.Reset()
+				responseEventID = event.EventID
 			}
+			response.WriteString(event.Text)
 		}
 	}
 	return strings.TrimSpace(response.String()), nil

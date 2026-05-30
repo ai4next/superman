@@ -10,6 +10,15 @@ Evolution scope:
 {{end}}{{if .ExpertDir}}- Experts: {{.ExpertDir}}/{name}/soul.md
 {{end}}
 Session log: {{.SessionLogPath}}
+{{if .MailboxMessages}}
+Memory update mailbox: {{.MailboxPath}}
+Pending messages for {{.AgentName}}:
+{{range .MailboxMessages}}- ID: {{.ID}}
+  From: {{.Sender}}
+  Content: {{.Content}}
+{{end}}
+After reviewing each mailbox message, update only this scope's allowed memory files when the message is durable and belongs here. Ignore messages that do not meet the durability or ownership standard.
+{{end}}
 
 Current write limits:
 {{if .CanAddL1Section}}- You may create a new fact section when no existing section fits.

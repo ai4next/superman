@@ -34,6 +34,14 @@ memory:
     max_sections: 100
   l2:
     max_index_items: 50
+  search:
+    enabled: true
+    fts_enabled: true
+    scan_enabled: true
+    vector_enabled: false
+    max_results: 8
+  mailbox:
+    enabled: true
 
 # Skill system — multiple paths supported
 skills:
@@ -71,8 +79,13 @@ reflect:
 
 # Expert cultivation/delegation
 expert:
-  enabled: true
   max_count: 10
+
+# Local event/task bus
+bus:
+  audit_log: ${HOME}/.sm/bus/events.jsonl
+  queue:
+    max_size: 100
 
 # Instant-messaging server.
 # Platform options are passed to Superman IM adapters.

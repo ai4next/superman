@@ -1,4 +1,4 @@
-package runtime
+package bus
 
 import (
 	"bufio"
@@ -13,43 +13,31 @@ import (
 )
 
 type AuditLogger struct {
-	path string
 	mu   sync.Mutex
+	path string
 }
 
 func NewAuditLogger(path string) *AuditLogger {
 	return &AuditLogger{path: path}
 }
 
-func (l *AuditLogger) Subscribe(ctx context.Context, broker *Broker) {
-	if l == nil || broker == nil {
-		return
-	}
-	events := broker.Subscribe(ctx)
-	go func() {
-		for event := range events {
-			if err := l.Write(event); err != nil {
-				// Audit logging must not break agent execution.
-				continue
-			}
-		}
-	}()
-}
-
 func (l *AuditLogger) Write(event Event) error {
 	if l == nil || l.path == "" {
 		return nil
 	}
+	if event.At.IsZero() {
+		event.At = nowUTC()
+	}
 	data, err := json.Marshal(event)
 	if err != nil {
-		return fmt.Errorf("marshal audit event: %w", err)
+		return err
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if err := os.MkdirAll(filepath.Dir(l.path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(l.path), 0o755); err != nil {
 		return fmt.Errorf("create audit dir: %w", err)
 	}
-	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("open audit log: %w", err)
 	}
@@ -60,9 +48,23 @@ func (l *AuditLogger) Write(event Event) error {
 	return nil
 }
 
+func (l *AuditLogger) Subscribe(ctx context.Context, broker Broker, filter EventFilter) error {
+	events, err := broker.Subscribe(ctx, filter)
+	if err != nil {
+		return err
+	}
+	go func() {
+		for event := range events {
+			_ = l.Write(event)
+		}
+	}()
+	return nil
+}
+
 type AuditFilter struct {
 	SessionID string
 	RunID     string
+	TaskID    string
 	Types     []EventType
 	Limit     int
 }
@@ -72,6 +74,7 @@ type AuditSummary struct {
 	ByType        map[EventType]int    `json:"by_type"`
 	Sessions      map[string]int       `json:"sessions,omitempty"`
 	Runs          map[string]int       `json:"runs,omitempty"`
+	Tasks         map[string]int       `json:"tasks,omitempty"`
 	Tools         map[string]int       `json:"tools,omitempty"`
 	Errors        int                  `json:"errors"`
 	FirstAt       time.Time            `json:"first_at,omitempty"`
@@ -119,6 +122,9 @@ func DecodeAuditEvents(r io.Reader, filter AuditFilter) ([]Event, error) {
 		if filter.RunID != "" && event.RunID != filter.RunID {
 			continue
 		}
+		if filter.TaskID != "" && event.TaskID != filter.TaskID {
+			continue
+		}
 		if len(typeFilter) > 0 {
 			if _, ok := typeFilter[event.Type]; !ok {
 				continue
@@ -140,6 +146,7 @@ func SummarizeAuditEvents(events []Event) AuditSummary {
 		ByType:        make(map[EventType]int),
 		Sessions:      make(map[string]int),
 		Runs:          make(map[string]int),
+		Tasks:         make(map[string]int),
 		Tools:         make(map[string]int),
 		LastBySession: make(map[string]time.Time),
 	}
@@ -155,10 +162,13 @@ func SummarizeAuditEvents(events []Event) AuditSummary {
 		if event.RunID != "" {
 			summary.Runs[event.RunID]++
 		}
+		if event.TaskID != "" {
+			summary.Tasks[event.TaskID]++
+		}
 		if event.ToolName != "" {
 			summary.Tools[event.ToolName]++
 		}
-		if event.Error != "" || event.Type == EventRunFailed || event.Type == EventEvolutionFailed {
+		if event.Error != "" || event.Type == EventRunFailed || event.Type == EventEvolutionFailed || event.Type == EventTaskFailed || event.Type == EventTaskDead {
 			summary.Errors++
 		}
 		if !event.At.IsZero() {
@@ -178,6 +188,9 @@ func SummarizeAuditEvents(events []Event) AuditSummary {
 	}
 	if len(summary.Runs) == 0 {
 		summary.Runs = nil
+	}
+	if len(summary.Tasks) == 0 {
+		summary.Tasks = nil
 	}
 	if len(summary.Tools) == 0 {
 		summary.Tools = nil

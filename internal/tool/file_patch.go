@@ -17,7 +17,6 @@ type filePatchInput struct {
 }
 
 type filePatchOutput struct {
-	FilePath string `json:"file_path"`
 	Applied  bool   `json:"applied"`
 }
 
@@ -59,7 +58,6 @@ func patchFile(tctx tool.Context, deps Dependencies, input filePatchInput) (file
 	}
 
 	out := filePatchOutput{
-		FilePath: abs,
 		Applied:  true,
 	}
 	recordFileRevision(tctx, abs, "patch", content, newContent, false)

@@ -48,7 +48,7 @@ func newEvolver(llm model.LLM, cfg *config.Config, memSvc *memory.Service, name 
 }
 
 func evolverTools(cfg *config.Config) []tool.Tool {
-	return supermantool.RegisterAll(supermantool.Dependencies{Config: cfg})
+	return supermantool.RegisterAll(supermantool.Dependencies{Config: cfg, EvolverTools: true})
 }
 
 func evolverInstructionProvider(instruction string, memSvc *memory.Service) llmagent.InstructionProvider {

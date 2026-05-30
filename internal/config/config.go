@@ -15,6 +15,7 @@ type Config struct {
 	Session   SessionConfig  `mapstructure:"session"`
 	Reflect   ReflectConfig  `mapstructure:"reflect"`
 	Expert    ExpertConfig   `mapstructure:"expert"`
+	Bus       BusConfig      `mapstructure:"bus"`
 	IM        IMConfig       `mapstructure:"im"`
 }
 
@@ -72,9 +73,11 @@ type AskConfig struct {
 
 // MemoryConfig configures the memory subsystem.
 type MemoryConfig struct {
-	L0 L0Config `mapstructure:"l0"`
-	L1 L1Config `mapstructure:"l1"`
-	L2 L2Config `mapstructure:"l2"`
+	L0      L0Config            `mapstructure:"l0"`
+	L1      L1Config            `mapstructure:"l1"`
+	L2      L2Config            `mapstructure:"l2"`
+	Search  MemorySearchConfig  `mapstructure:"search"`
+	Mailbox MemoryMailboxConfig `mapstructure:"mailbox"`
 }
 
 // L0Config configures the runtime L0 index.
@@ -89,6 +92,20 @@ type L1Config struct {
 // L2Config configures the SOP directory.
 type L2Config struct {
 	MaxIndexItems int `mapstructure:"max_index_items"`
+}
+
+// MemorySearchConfig configures cross-owner memory search.
+type MemorySearchConfig struct {
+	Enabled       bool `mapstructure:"enabled"`
+	FTSEnabled    bool `mapstructure:"fts_enabled"`
+	ScanEnabled   bool `mapstructure:"scan_enabled"`
+	VectorEnabled bool `mapstructure:"vector_enabled"` // Uses local token-vector scoring until an embedding provider is configured.
+	MaxResults    int  `mapstructure:"max_results"`
+}
+
+// MemoryMailboxConfig configures evolver-targeted memory update mailboxes.
+type MemoryMailboxConfig struct {
+	Enabled bool `mapstructure:"enabled"`
 }
 
 // PluginConfig configures an individual plugin.
@@ -150,8 +167,18 @@ type SchedulerConfig struct {
 
 // ExpertConfig configures the expert subsystem.
 type ExpertConfig struct {
-	Enabled  bool `mapstructure:"enabled"`
-	MaxCount int  `mapstructure:"max_count"`
+	MaxCount int `mapstructure:"max_count"`
+}
+
+// BusConfig configures the local event/task bus.
+type BusConfig struct {
+	Path     string         `mapstructure:"path"`
+	AuditLog string         `mapstructure:"audit_log"`
+	Queue    BusQueueConfig `mapstructure:"queue"`
+}
+
+type BusQueueConfig struct {
+	MaxSize int `mapstructure:"max_size"`
 }
 
 // IMConfig configures instant-messaging platform adapters.

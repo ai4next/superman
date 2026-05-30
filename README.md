@@ -3,7 +3,7 @@
 
 ![Logo](assets/banner.png)
 
-Collective-evolving autonomous AI agent. Superman coordinates tools and expert sub-agents as a bounded agent collective, persists sessions and flat-file memory, and uses layered agent/meta evolution to turn completed work into durable knowledge for both the main agent and its experts.
+Collective-evolving autonomous AI agent. Superman coordinates tools and expert sub-agents as a bounded agent collective, persists session and flat-file memory, and uses layered agent/meta evolution to turn completed work into durable knowledge for both the main agent and its experts.
 
 ## 💡 Design Philosophy
 
@@ -13,9 +13,9 @@ Collective-evolving autonomous AI agent. Superman coordinates tools and expert s
 
 - **Evolution over accumulation.** Logs are not memory. Most history is noise unless it is compressed into facts, procedures, or sharper agents. Agent evolution improves Superman and experts; meta evolution improves only the evolution process. The loop learns, but it has walls.
 
-- **Boundaries over vibes.** Self-improvement without write boundaries is just automated drift. Superman memory, expert memory, expert souls, evolver memory, sessions, and audit logs are separate because ownership is what keeps learning from becoming corruption.
+- **Boundaries over vibes.** Self-improvement without write boundaries is just automated drift. Superman memory, expert memory, expert souls, evolver memory, session, and audit logs are separate because ownership is what keeps learning from becoming corruption.
 
-- **Clarity over chaos.** Long context fails less from length than from contamination. The system prefers small files, explicit scopes, persistent sessions, and inspectable diffs because durable autonomy needs a filesystem, not a mystique.
+- **Clarity over chaos.** Long context fails less from length than from contamination. The system prefers small files, explicit scopes, persistent session, and inspectable diffs because durable autonomy needs a filesystem, not a mystique.
 
 ---
 
@@ -56,14 +56,16 @@ VERSION=v0.0.1 INSTALL_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://raw.gi
 ## ✨ Features
 
 - **Multi-model support** — Gemini (Vertex AI), OpenAI, DeepSeek, Claude, Ollama, and any OpenAI-compatible API
-- **6 built-in tools** — OS-aware command execution, file read/write/patch, user interaction, expert delegation
+- **Built-in tools** — OS-aware command execution, file read/write/patch, user interaction, memory search, expert delegation
 - **MCP server integration** — plug in any MCP-compatible tool server via config (stdin/stdout transport)
 - **Instant-messaging integration** — run a long-lived server that connects Superman to Telegram, Feishu/Lark, WeCom, Weixin, QQ, DingTalk, Slack, Discord, LINE, and Weibo
-- **Persistent sessions** — SQLite-backed session/message store with compact `U/A/T/O` evolution logs, automatic compaction, file revision tracking, and session export/import
+- **Persistent session** — SQLite-backed session/message store with compact `U/A/T/O` evolution logs, automatic compaction, file revision tracking, and session export/import
 - **Runtime audit** — Events (tool calls, text delta, errors, evolutions) streamed to a queryable JSONL audit log
+- **In-process task queue** — expert and orchestration tasks use a Go channel queue inside each Superman process, so multiple local Superman instances do not contend for a shared queue database
 - **Flat-file memory** — global facts (L1) and SOP files (L2) stored directly in the workspace
-- **Expert delegation** — dispatch tasks to expert sub-agents with isolated memory and persistent sessions
-- **Layered self-evolution** — agent evolver improves Superman/experts from completed sessions; meta evolver improves only the evolution process from evolver sessions
+- **Plan-Execute agent loop** — every agent is assembled as `planner -> loop(executor -> replanner)`, so requests are planned, executed step by step, and replanned until completion or the iteration limit
+- **Expert delegation** — dispatch tasks to expert sub-agents with isolated memory and persistent session
+- **Layered self-evolution** — agent evolver improves Superman/experts from completed session; meta evolver improves only the evolution process from evolver session
 - **Plugin system** — unified run/model/tool logging and session reaper
 - **Terminal UI** — dark theme, Emacs-style keybindings, sidebar, and dialog system
 - **Hook system** — 11 lifecycle event hooks (before/after run, tool, model, etc.) with external script execution via JSON stdin/stdout protocol
@@ -82,22 +84,22 @@ VERSION=v0.0.1 INSTALL_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://raw.gi
 | `sm init` | Create `config.yaml` from the embedded example template |
 | `sm configure` | Show or initialize configuration |
 | `sm toolsets` | List configured ADK Skill and MCP toolsets |
-| `sm sessions list` | List persistent sessions |
-| `sm sessions show <id>` | Show session messages |
-| `sm sessions last` | Show the most recently updated session |
-| `sm sessions search <query>` | Search persisted session messages |
-| `sm sessions files <id>` | Show session working files |
-| `sm sessions history <id>` | Show session file revision history |
-| `sm sessions diff <id> <path>` | Show file revision diff |
-| `sm sessions revert <id> <path>` | Revert a file to its previous revision |
-| `sm sessions export <id>` | Export session (markdown/json/jsonl) |
-| `sm sessions import <path>` | Import a session export |
-| `sm sessions compact <id>` | Compact older session context into a summary |
-| `sm sessions delete <id>` | Delete a persistent session |
-| `sm sessions rename <id> <title>` | Rename a session |
-| `sm sessions queue <id>` | Inspect queued prompts for a session |
-| `sm sessions storage` | Inspect persistent session storage stats |
-| `sm sessions storage gc` | Remove orphaned file revision snapshots |
+| `sm session list` | List persistent session |
+| `sm session show <id>` | Show session messages |
+| `sm session last` | Show the most recently updated session |
+| `sm session search <query>` | Search persisted session messages |
+| `sm session files <id>` | Show session working files |
+| `sm session history <id>` | Show session file revision history |
+| `sm session diff <id> <path>` | Show file revision diff |
+| `sm session revert <id> <path>` | Revert a file to its previous revision |
+| `sm session export <id>` | Export session (markdown/json/jsonl) |
+| `sm session import <path>` | Import a session export |
+| `sm session compact <id>` | Compact older session context into a summary |
+| `sm session delete <id>` | Delete a persistent session |
+| `sm session rename <id> <title>` | Rename a session |
+| `sm session queue <id>` | Inspect queued prompts for a session |
+| `sm session storage` | Inspect persistent session storage stats |
+| `sm session storage gc` | Remove orphaned file revision snapshots |
 | `sm runtime events` | List runtime audit events |
 | `sm runtime summary` | Summarize runtime audit events |
 
@@ -118,6 +120,14 @@ tools:
   exec:
     enabled: true
     timeout: 30s
+
+expert:
+  max_count: 10
+
+bus:
+  audit_log: ${HOME}/.sm/bus/events.jsonl
+  queue:
+    max_size: 100
 
 # Skill system — multiple paths supported
 skills:
@@ -151,6 +161,8 @@ plugins:
 `model.headers` is optional and is forwarded with every model request, which is useful for custom OpenAI-compatible gateways.
 
 Environment variables override config: `SUPERMAN_MODEL_PROVIDER=openai`, `SUPERMAN_MODEL_API_KEY=sk-...`, etc.
+
+`bus.queue` is intentionally in-process. It is used for local async delegate/orchestration work inside the current Superman process and is not persisted or shared across simultaneously running Superman processes. `bus.audit_log` is the durable JSONL event mirror.
 
 ### Instant Messaging
 
@@ -206,9 +218,23 @@ The command prints a QR code in the terminal, waits for phone confirmation, prin
 | `write` | Write files |
 | `patch` | Replace one exact text match in a file |
 | `ask` | Interrupt to ask the user a question |
-| `delegate` | Delegate a task to an expert for independent execution |
+| `delegate` | Delegate a task to an expert; use `mode=sync` for an immediate result or `mode=async` to enqueue work |
 
-`delegate` is loaded dynamically only when expert delegation is enabled and at least one expert is available. Experts are stored as directories under `experts/{expert_name}`; the directory name is the expert name and `soul.md` is the expert's system prompt.
+`delegate` is loaded dynamically when at least one expert is available. Experts are stored under `state/{expert_name}`; the directory name is the expert name and `soul.md` is the expert's system prompt.
+
+## 🧠 Agent Runtime
+
+Superman builds the main agent and every expert with the same Plan-Execute structure:
+
+```text
+{name}                         # sequential root
+├── {name}_planner              # produces the initial plan
+└── {name}_plan_execute_loop     # bounded loop
+    ├── {name}_executor         # executes the first unfinished plan step
+    └── {name}_replanner        # evaluates progress, updates the plan, or exits the loop
+```
+
+The planner stores the current plan in session state. The executor receives that plan plus normal runtime context and tools, executes only the first unfinished step, and stores the step result. The replanner reads the current plan and latest executor result, then either emits an adjusted plan or calls `exit_loop` when the task is complete. Text events keep the ADK author and event id so callers can display planner/replanner progress while collecting the final result from the last executor event.
 
 ## 🔌 Hooks & Skills
 
@@ -291,23 +317,29 @@ superman/
 ├── main.go                          # Entry point
 ├── internal/
 │   ├── agent/
-│   │   ├── agent.go                 # Agent factory with memory/SOP injection
+│   │   ├── agent.go                 # Agent factory entrypoint and shared wiring
+│   │   ├── orchestrator.go          # Plan-Execute ADK agent tree assembly
+│   │   ├── builtin.go               # Executor prompt/context/tool preparation
 │   │   ├── context.go               # Context builder for agent runs
 │   │   ├── tool.go                  # Dynamic built-in/toolset assembly
 │   │   └── evolver.go               # Agent/meta evolution agent factories
 │   ├── prompt/                      # Embedded prompt templates
 │   │   └── template/                # Markdown prompt templates
 │   ├── config/                      # YAML + env config (viper), embedded config.example.yaml
-│   ├── cli/                         # Cobra CLI commands (init, run, reflect, im, configure, toolsets, sessions, runtime)
+│   ├── cli/                         # Cobra CLI commands (init, run, reflect, im, configure, toolsets, session, runtime)
 │   ├── tui/                         # Terminal UI
 │   │   ├── tui.go                   # Compatibility wrapper
-│   │   ├── app/                     # Model, runtime, sessions, commands, dialogs, layout
+│   │   ├── app/                     # Model, runtime, session, commands, dialogs, layout
 │   │   ├── components/              # Chat, input line, toolbar, sidebar renderers
 │   │   └── styles/                  # Dark theme, icons, color themes
 │   ├── model/                       # Multi-provider LLM factory
-│   ├── memory/                      # Flat-file memory (L1 global facts, L2 SOP files)
-│   ├── session/                     # Persistent session manager with JSONL store, file tracking, references
-│   ├── runtime/                     # Event-driven runtime with audit logging
+│   ├── memory/                      # Flat-file memory plus search service (L1 facts, L2 SOP files)
+│   ├── session/                     # Persistent session manager with compact logs, file tracking, references
+│   ├── store/
+│   │   ├── db/                      # GORM/SQLite models, DBRegistry, memory index, session/mailbox stores
+│   │   └── fs/                      # File-backed stores such as compact session logs
+│   ├── runtime/                     # Run streaming, session compaction, loop detection
+│   ├── bus/                         # In-process event broker, channel task queue, audit mirror
 │   ├── im/                          # Instant-messaging integration
 │   ├── plugin/                      # Plugin registry + built-ins
 │   ├── hook/                        # Hook manager + script runner
@@ -318,7 +350,7 @@ superman/
 ├── config.example.yaml              # Symlink to internal/config/config.example.yaml
 ├── config/tasks/                    # Sample scheduler task definitions
 ├── data/
-│   └── sessions/                    # Session history
+│   └── session/                    # Session history
 ├── go.mod
 └── go.sum
 ```
@@ -331,32 +363,30 @@ All runtime data is stored under `workspace` in `config.yaml`. If omitted, it de
 ~/.sm/                                    # workspace (default: $HOME/.sm)
 ├── config.yaml                           # User configuration (created by `sm init` or `sm configure`)
 ├── tui.log                               # Terminal UI runtime log (redirected for display safety)
+├── memory/                               # Flat-file memory by agent
+│   ├── superman/
+│   │   ├── l1.toml                       # L1 global facts
+│   │   └── l2/                           # L2 SOP files (*.md)
+│   └── {expert_name}/
+│       ├── l1.toml
+│       └── l2/
+├── session/                              # Compact session logs and snapshots by agent
+│   ├── superman/
+│   │   ├── <id>.log
+│   │   └── snapshots/
+│   └── {expert_name}/
+│       └── <id>.log
+├── state/                                # Agent state stores and souls
+│   ├── state.db                          # Global DB: cross-owner memory search index and internal mailbox state
+│   ├── superman/
+│   │   └── state.db
+│   └── {expert_name}/
+│       ├── soul.md                       # Expert system prompt
+│       └── state.db
+├── bus/
+│   └── events.jsonl                      # Unified bus/runtime audit mirror; task queue is in-process
 ├── hooks/                                # Hook event scripts (11 lifecycle events)
-├── skills/                               # Skill definitions (SKILL.md)
-├── memory/                               # Superman's flat-file memory
-│   ├── l1.toml                           # L1 global facts
-│   ├── l2/                               # L2 SOP files (*.md)
-├── state.db                              # SQLite session/message metadata store
-├── sessions/                             # Compact session logs and snapshots
-│   ├── <id>.log                          # LLM evolution projection
-│   └── snapshots/                        # File revision snapshots
-├── runtime/
-│   └── events.jsonl                      # Runtime audit event log
-├── evolution/                            # Agent evolver + meta evolver runtime root
-│   ├── memory/                           # Evolver's flat-file memory
-│   │   ├── l1.toml
-│   │   └── l2/
-│   ├── state.db                          # Evolver SQLite session/message metadata store
-│   └── sessions/
-│       ├── agent-evolution-<...>.log     # Agent evolution session log
-│       └── meta-evolution-<...>.log      # Meta evolution session log
-└── experts/
-    └── {expert_name}/
-        ├── soul.md                       # Expert system prompt; directory name is the expert name
-        ├── memory/                       # Expert's isolated memory
-        ├── state.db                      # Expert SQLite session/message metadata store
-        └── sessions/
-            └── <id>.log                  # Expert compact session log
+└── skills/                               # Skill definitions (SKILL.md)
 ```
 
 ## 🏗️ Build

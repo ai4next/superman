@@ -21,6 +21,18 @@ func (fakeDelegateRunner) RunDelegate(context.Context, string, string) (string, 
 	return "", nil
 }
 
+type fakeDelegateScheduler struct{}
+
+func (fakeDelegateScheduler) EnqueueDelegate(context.Context, DelegateTaskRequest) (DelegateTaskReceipt, error) {
+	return DelegateTaskReceipt{TaskID: "task-1", Status: "queued"}, nil
+}
+
+type fakeOrchestrator struct{}
+
+func (fakeOrchestrator) SubmitPlan(context.Context, string) (OrchestratorReceipt, error) {
+	return OrchestratorReceipt{PlanID: "p1", Status: "running", Queued: 1}, nil
+}
+
 func toolNames(ts []tool.Tool) map[string]bool {
 	names := make(map[string]bool, len(ts))
 	for _, t := range ts {
@@ -31,7 +43,6 @@ func toolNames(ts []tool.Tool) map[string]bool {
 
 func TestRegisterAllExpertToolsFlag(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.Expert.Enabled = true
 
 	without := RegisterAll(Dependencies{
 		Config:         cfg,
@@ -58,7 +69,6 @@ func TestRegisterAllExpertToolsFlag(t *testing.T) {
 
 func TestRegisterAllSkipsDelegateWithoutExperts(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.Expert.Enabled = true
 
 	tools := RegisterAll(Dependencies{
 		Config:         cfg,
@@ -68,5 +78,66 @@ func TestRegisterAllSkipsDelegateWithoutExperts(t *testing.T) {
 	})
 	if toolNames(tools)["delegate"] {
 		t.Fatalf("tool %q should be disabled when no experts are available", "delegate")
+	}
+}
+
+func TestRegisterAllAllowsDelegateWithSchedulerOnly(t *testing.T) {
+	cfg := &config.Config{}
+
+	tools := RegisterAll(Dependencies{
+		Config:            cfg,
+		ExpertManager:     fakeExpertManager{experts: []*expert.Spec{{Name: "architect"}}},
+		DelegateScheduler: fakeDelegateScheduler{},
+		ExpertTools:       true,
+	})
+	if !toolNames(tools)["delegate"] {
+		t.Fatalf("tool %q should be enabled when scheduler is available", "delegate")
+	}
+}
+
+func TestRegisterAllIncludesOrchestrateTool(t *testing.T) {
+	tools := RegisterAll(Dependencies{
+		Config:        &config.Config{},
+		ExpertManager: fakeExpertManager{experts: []*expert.Spec{{Name: "architect"}}},
+		Orchestrator:  fakeOrchestrator{},
+		ExpertTools:   true,
+	})
+	if !toolNames(tools)["orchestrate"] {
+		t.Fatalf("tool %q should be enabled when orchestrator is available", "orchestrate")
+	}
+}
+
+func TestRegisterAllIncludesMemoryTools(t *testing.T) {
+	tools := RegisterAll(Dependencies{
+		Config: &config.Config{
+			Memory: config.MemoryConfig{
+				Search:  config.MemorySearchConfig{Enabled: true},
+				Mailbox: config.MemoryMailboxConfig{Enabled: true},
+			},
+		},
+	})
+	names := toolNames(tools)
+	if !names["memory_search"] {
+		t.Fatalf("tool %q should be enabled", "memory_search")
+	}
+	if names["memory_update"] {
+		t.Fatalf("tool %q should not be registered", "memory_update")
+	}
+	if names["memory_mailbox_mark"] {
+		t.Fatalf("tool %q should not be registered", "memory_mailbox_mark")
+	}
+}
+
+func TestRegisterAllDoesNotIncludeMailboxMarkForEvolver(t *testing.T) {
+	tools := RegisterAll(Dependencies{
+		Config: &config.Config{
+			Memory: config.MemoryConfig{
+				Mailbox: config.MemoryMailboxConfig{Enabled: true},
+			},
+		},
+		EvolverTools: true,
+	})
+	if toolNames(tools)["memory_mailbox_mark"] {
+		t.Fatalf("tool %q should not be registered", "memory_mailbox_mark")
 	}
 }

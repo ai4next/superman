@@ -1,4 +1,4 @@
-package runtime
+package bus
 
 import (
 	"encoding/json"
@@ -9,45 +9,6 @@ import (
 	"google.golang.org/adk/tool/toolconfirmation"
 	"google.golang.org/genai"
 )
-
-type EventType string
-
-const (
-	EventRunStarted          EventType = "run_started"
-	EventRunFinished         EventType = "run_finished"
-	EventRunFailed           EventType = "run_failed"
-	EventRunCanceled         EventType = "run_canceled"
-	EventTextDelta           EventType = "text_delta"
-	EventToolCallStarted     EventType = "tool_call_started"
-	EventToolCallFinished    EventType = "tool_call_finished"
-	EventPermissionRequested EventType = "permission_requested"
-	EventPermissionGranted   EventType = "permission_granted"
-	EventPermissionDenied    EventType = "permission_denied"
-	EventEvolutionStarted    EventType = "evolution_started"
-	EventEvolutionFinished   EventType = "evolution_finished"
-	EventEvolutionFailed     EventType = "evolution_failed"
-	EventSessionCompacted    EventType = "session_compacted"
-)
-
-type Event struct {
-	Type      EventType `json:"type"`
-	SessionID string    `json:"session_id,omitempty"`
-	RunID     string    `json:"run_id,omitempty"`
-	At        time.Time `json:"at"`
-
-	Text       string `json:"text,omitempty"`
-	ToolID     string `json:"tool_id,omitempty"`
-	ToolName   string `json:"tool_name,omitempty"`
-	Args       string `json:"args,omitempty"`
-	Result     string `json:"result,omitempty"`
-	Status     string `json:"status,omitempty"`
-	Error      string `json:"error,omitempty"`
-	Permission bool   `json:"permission,omitempty"`
-	Auto       bool   `json:"auto,omitempty"`
-	Role       string `json:"role,omitempty"`
-	Path       string `json:"path,omitempty"`
-	Count      int    `json:"count,omitempty"`
-}
 
 func RunStarted(sessionID, runID string) Event {
 	return Event{Type: EventRunStarted, SessionID: sessionID, RunID: runID, At: time.Now()}
@@ -101,8 +62,10 @@ func FromADKEvent(sessionID string, event *adksession.Event) []Event {
 					Type:      EventTextDelta,
 					SessionID: sessionID,
 					RunID:     event.InvocationID,
+					EventID:   event.ID,
 					At:        event.Timestamp,
 					Text:      part.Text,
+					Author:    event.Author,
 				})
 			}
 			if part.FunctionCall != nil {
@@ -115,11 +78,11 @@ func FromADKEvent(sessionID string, event *adksession.Event) []Event {
 					Type:       EventToolCallStarted,
 					SessionID:  sessionID,
 					RunID:      event.InvocationID,
+					EventID:    event.ID,
 					At:         event.Timestamp,
 					ToolID:     toolID,
 					ToolName:   part.FunctionCall.Name,
 					Args:       marshalString(part.FunctionCall.Args),
-					Permission: hasRequestedConfirmation(event, toolID),
 				})
 			}
 			if part.FunctionResponse != nil {
@@ -127,6 +90,7 @@ func FromADKEvent(sessionID string, event *adksession.Event) []Event {
 					Type:      EventToolCallFinished,
 					SessionID: sessionID,
 					RunID:     event.InvocationID,
+					EventID:   event.ID,
 					At:        event.Timestamp,
 					ToolID:    firstNonEmpty(part.FunctionResponse.ID, part.FunctionResponse.Name),
 					ToolName:  part.FunctionResponse.Name,
@@ -141,10 +105,10 @@ func FromADKEvent(sessionID string, event *adksession.Event) []Event {
 			Type:       EventPermissionRequested,
 			SessionID:  sessionID,
 			RunID:      event.InvocationID,
+			EventID:    event.ID,
 			At:         event.Timestamp,
 			ToolID:     toolID,
 			Args:       marshalString(confirmation),
-			Permission: true,
 		})
 	}
 	return out
@@ -165,20 +129,12 @@ func confirmationEvent(sessionID string, event *adksession.Event, functionCall *
 		Type:       EventPermissionRequested,
 		SessionID:  sessionID,
 		RunID:      event.InvocationID,
+		EventID:    event.ID,
 		At:         event.Timestamp,
 		ToolID:     toolID,
 		ToolName:   toolName,
 		Args:       args,
-		Permission: true,
 	}
-}
-
-func hasRequestedConfirmation(event *adksession.Event, toolID string) bool {
-	if event == nil || toolID == "" {
-		return false
-	}
-	_, ok := event.Actions.RequestedToolConfirmations[toolID]
-	return ok
 }
 
 func marshalString(v any) string {

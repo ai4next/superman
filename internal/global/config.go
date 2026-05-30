@@ -33,4 +33,5 @@ func SetConfig(c *config.Config) {
 	configMu.Lock()
 	defer configMu.Unlock()
 	cfg = c
+	ResetDBRegistry()
 }

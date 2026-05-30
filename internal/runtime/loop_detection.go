@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/ai4next/superman/internal/bus"
 )
 
 const (
@@ -52,17 +54,17 @@ func NewLoopDetector(cfg LoopDetectionConfig) *LoopDetector {
 	}
 }
 
-func (d *LoopDetector) Observe(event Event) error {
+func (d *LoopDetector) Observe(event bus.Event) error {
 	if d == nil {
 		return nil
 	}
 	switch event.Type {
-	case EventToolCallStarted:
+	case bus.EventToolCallStarted:
 		if event.ToolID == "" {
 			return nil
 		}
 		d.started[event.ToolID] = toolInteraction{name: event.ToolName, args: event.Args}
-	case EventToolCallFinished:
+	case bus.EventToolCallFinished:
 		name := event.ToolName
 		args := event.Args
 		if started, ok := d.started[event.ToolID]; ok {

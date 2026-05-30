@@ -23,12 +23,20 @@ var metaEvolverSystem string
 //go:embed template/evolution_runtime.md
 var evolutionRuntimeTemplate string
 
+//go:embed template/agent_planner.md
+var agentPlanner string
+
+//go:embed template/agent_replanner.md
+var agentReplanner string
+
 func init() {
 	supermanSystem = strings.TrimSpace(supermanSystem)
 	supermanEvolverSystem = strings.TrimSpace(supermanEvolverSystem)
 	expertEvolverSystem = strings.TrimSpace(expertEvolverSystem)
 	metaEvolverSystem = strings.TrimSpace(metaEvolverSystem)
 	evolutionRuntimeTemplate = strings.TrimSpace(evolutionRuntimeTemplate)
+	agentPlanner = strings.TrimSpace(agentPlanner)
+	agentReplanner = strings.TrimSpace(agentReplanner)
 }
 
 func SupermanSystem() string {
@@ -45,6 +53,14 @@ func ExpertEvolverSystem() string {
 
 func MetaEvolverSystem() string {
 	return metaEvolverSystem
+}
+
+func AgentPlanner() string {
+	return agentPlanner
+}
+
+func AgentReplanner() string {
+	return agentReplanner
 }
 
 func EvolutionRuntime(data any) (string, error) {

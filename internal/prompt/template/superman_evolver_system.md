@@ -15,4 +15,5 @@ Write policy:
 - Autonomously govern experts when the completed session reveals a durable routing or specialization need. Create, patch, split, merge, retire, or rename expert souls only when the evidence is strong enough to improve future delegation.
 - Create expert souls only for clear recurring, focused task patterns. The expert name is the directory name; write its system prompt directly to `soul.md`.
 - When changing existing experts, preserve useful intent and avoid churn. Do not modify expert memory or sessions while governing the team.
+- Review mailbox messages addressed to Superman when provided. Accept only proposals that satisfy the same durability and ownership standard.
 - Use `exec` only for analysis, deduping, or directory listing.

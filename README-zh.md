@@ -13,7 +13,7 @@
 
 - **进化胜于堆积。** 日志不是记忆。大多数历史如果没有被压缩成事实、流程或更锋利的 Agent，就只是噪声。Agent evolution 改进 Superman 和专家；meta evolution 只改进进化过程。系统可以学习，但必须有墙。
 
-- **边界胜于感觉。** 没有写入边界的自我改进只是自动漂移。Superman 记忆、专家记忆、专家 soul、evolver 记忆、sessions、audit logs 必须分开，因为所有权边界决定学习会变成能力，还是变成污染。
+- **边界胜于感觉。** 没有写入边界的自我改进只是自动漂移。Superman 记忆、专家记忆、专家 soul、evolver 记忆、session、audit logs 必须分开，因为所有权边界决定学习会变成能力，还是变成污染。
 
 - **清晰胜于混沌。** 长上下文失败常常不是因为不够长，而是因为被污染。系统选择小文件、显式 scope、持久会话和可检查 diff，因为可靠的自治需要文件系统，而不是神秘感。
 
@@ -56,12 +56,14 @@ VERSION=v0.0.1 INSTALL_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://raw.gi
 ## ✨ 功能特性
 
 - **多模型支持** — Gemini (Vertex AI)、OpenAI、DeepSeek、Claude、Ollama，以及任何兼容 OpenAI 的 API
-- **6 个内建工具** — 自动适配操作系统的命令执行、文件读写/补丁、用户交互、专家委托
+- **内建工具** — 自动适配操作系统的命令执行、文件读写/补丁、用户交互、记忆搜索、专家委托
 - **MCP Server 集成** — 通过配置接入任意 MCP 兼容工具服务（stdin/stdout transport）
 - **即时通信软件接入** — 以常驻 server 方式接入 Telegram、飞书/Lark、企业微信、微信个人号、QQ、钉钉、Slack、Discord、LINE、微博等平台
-- **持久会话** — SQLite-backed session/message store，配套精简 `U/A/T/O` 进化日志，支持自动压缩、文件 revision tracking、session 导入导出
+- **持久会话** — SQLite 支撑的 session/message 存储，配套精简 `U/A/T/O` 进化日志，支持自动压缩、文件 revision tracking、session 导入导出
 - **运行时审计** — 工具调用、文本增量、错误、进化等事件流式写入可查询 JSONL audit log
+- **进程内任务队列** — 专家与编排任务使用每个 Superman 进程内的 Go channel 队列，本机同时启动多个 Superman 时不会争抢共享队列数据库
 - **扁平文件记忆** — 全局事实（L1）和 SOP 文件（L2）直接存储在 workspace 中
+- **Plan-Execute Agent 循环** — 每个 Agent 都按 `planner -> loop(executor -> replanner)` 组装，先规划，再按步骤执行，并在完成或达到迭代上限前持续复盘调整
 - **专家委托** — 将任务分派给拥有独立记忆和持久会话的专家子 Agent
 - **分层自进化** — agent evolver 从完成会话中改进 Superman/专家；meta evolver 只从 evolver 会话中改进进化过程本身
 - **插件系统** — 统一 run/model/tool 日志与会话回收
@@ -82,22 +84,22 @@ VERSION=v0.0.1 INSTALL_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://raw.gi
 | `sm init` | 从嵌入的示例模板创建 `config.yaml` |
 | `sm configure` | 查看或初始化配置 |
 | `sm toolsets` | 列出已配置的 ADK Skill 和 MCP toolsets |
-| `sm sessions list` | 列出持久会话 |
-| `sm sessions show <id>` | 查看会话消息 |
-| `sm sessions last` | 查看最近更新的会话 |
-| `sm sessions search <query>` | 搜索持久会话消息 |
-| `sm sessions files <id>` | 查看会话工作文件 |
-| `sm sessions history <id>` | 查看会话文件 revision 历史 |
-| `sm sessions diff <id> <path>` | 查看文件 revision diff |
-| `sm sessions revert <id> <path>` | 将文件回滚到上一 revision |
-| `sm sessions export <id>` | 导出会话（markdown/json/jsonl） |
-| `sm sessions import <path>` | 导入会话导出文件 |
-| `sm sessions compact <id>` | 将较旧会话上下文压缩为 summary |
-| `sm sessions delete <id>` | 删除持久会话 |
-| `sm sessions rename <id> <title>` | 重命名会话 |
-| `sm sessions queue <id>` | 查看会话中排队的 prompts |
-| `sm sessions storage` | 查看持久会话存储统计 |
-| `sm sessions storage gc` | 删除孤立的文件 revision snapshots |
+| `sm session list` | 列出持久会话 |
+| `sm session show <id>` | 查看会话消息 |
+| `sm session last` | 查看最近更新的会话 |
+| `sm session search <query>` | 搜索持久会话消息 |
+| `sm session files <id>` | 查看会话工作文件 |
+| `sm session history <id>` | 查看会话文件 revision 历史 |
+| `sm session diff <id> <path>` | 查看文件 revision diff |
+| `sm session revert <id> <path>` | 将文件回滚到上一 revision |
+| `sm session export <id>` | 导出会话（markdown/json/jsonl） |
+| `sm session import <path>` | 导入会话导出文件 |
+| `sm session compact <id>` | 将较旧会话上下文压缩为 summary |
+| `sm session delete <id>` | 删除持久会话 |
+| `sm session rename <id> <title>` | 重命名会话 |
+| `sm session queue <id>` | 查看会话中排队的 prompts |
+| `sm session storage` | 查看持久会话存储统计 |
+| `sm session storage gc` | 删除孤立的文件 revision snapshots |
 | `sm runtime events` | 列出 runtime audit events |
 | `sm runtime summary` | 汇总 runtime audit events |
 
@@ -106,8 +108,6 @@ VERSION=v0.0.1 INSTALL_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://raw.gi
 完整配置见 `config.example.yaml`。关键配置如下：
 
 ```yaml
-workspace: ${HOME}/.sm
-
 model:
   provider: openai          # gemini | openai | deepseek | claude | ollama
   name: gpt-4o
@@ -116,31 +116,18 @@ model:
   headers:
     X-Request-Source: superman
 
-server:
-  addr: 127.0.0.1:8080
-
 tools:
   exec:
     enabled: true
     timeout: 30s
-  read:
-    enabled: true
-    max_size: 10485760       # 10MB
-  write:
-    enabled: true
-    max_size: 10485760       # 10MB
-  patch:
-    enabled: true
-  ask:
-    enabled: true
 
-# Memory 索引限制
-memory:
-  l1:
-    max_index_items: 50
-    max_sections: 100
-  l2:
-    max_index_items: 50
+expert:
+  max_count: 10
+
+bus:
+  audit_log: ${HOME}/.sm/bus/events.jsonl
+  queue:
+    max_size: 100
 
 # Skill 系统，支持多个路径
 skills:
@@ -160,35 +147,22 @@ mcp:
 
 # 会话管理
 session:
-  app_name: superman
   max_turns: 75
-  archive_interval: 6h
-  session_ttl: 48h
   loop_detection:
     enabled: true
     window_size: 10
     max_repeats: 5
 
-# 自主反思
-reflect:
-  autonomous:
-    idle_timeout: 30m
-  scheduler:
-    tasks_dir: ./config/tasks
-
-# 专家培养/委托
-expert:
-  enabled: true
-  max_count: 10
-
 plugins:
-  - name: session_reaper
+  - name: logger
     enabled: true
 ```
 
 `model.headers` 是可选配置，会随每次模型请求一起发送，适合接入需要自定义请求头的 OpenAI-compatible 网关。
 
 环境变量可以覆盖配置：`SUPERMAN_MODEL_PROVIDER=openai`、`SUPERMAN_MODEL_API_KEY=sk-...` 等。
+
+`bus.queue` 是进程内队列，只用于当前 Superman 进程里的本地异步 delegate / orchestrator 工作，不持久化，也不在多个同时运行的 Superman 进程之间共享。`bus.audit_log` 是持久化 JSONL 事件审计镜像。
 
 ### 即时通信接入
 
@@ -244,9 +218,23 @@ sm im weixin setup
 | `write` | 写入文件 |
 | `patch` | 替换文件中的一个精确文本匹配 |
 | `ask` | 中断执行并向用户提问 |
-| `delegate` | 将任务委托给专家独立执行 |
+| `delegate` | 将任务委托给专家；`mode=sync` 立即返回结果，`mode=async` 将任务入队 |
 
-`delegate` 会在每次调用模型前动态判断，只有启用专家委托且至少存在一个专家时才会加载。专家存储在 `experts/{expert_name}` 目录下，目录名就是专家名，`soul.md` 是专家的系统提示词。
+`delegate` 会在每次调用模型前动态判断，只有启用专家委托且至少存在一个专家时才会加载。专家存储在 `state/{expert_name}` 目录下，目录名就是专家名，`soul.md` 是专家的系统提示词。
+
+## 🧠 Agent Runtime
+
+Superman 会用同一套 Plan-Execute 结构构建主 Agent 和每个专家 Agent：
+
+```text
+{name}                         # sequential root
+├── {name}_planner              # 生成初始计划
+└── {name}_plan_execute_loop     # 有上限的循环
+    ├── {name}_executor         # 执行当前计划中的第一个未完成步骤
+    └── {name}_replanner        # 评估进度、更新计划，或退出循环
+```
+
+planner 将当前计划写入 session state。executor 读取计划、普通运行上下文和工具，只执行第一个未完成步骤，并写入步骤结果。replanner 读取当前计划和最新 executor 结果，判断是输出调整后的新计划，还是在任务完成时调用 `exit_loop`。文本事件会保留 ADK author 和 event id，因此调用方可以展示 planner/replanner 进度，同时从最后一次 executor 事件收集最终结果。
 
 ## 🔌 Hooks & Skills
 
@@ -329,24 +317,29 @@ superman/
 ├── main.go                          # 入口
 ├── internal/
 │   ├── agent/
-│   │   ├── agent.go                 # Agent 工厂，注入 memory/SOP/context
+│   │   ├── agent.go                 # Agent 工厂入口与共享 wiring
+│   │   ├── orchestrator.go          # Plan-Execute ADK Agent 树组装
+│   │   ├── builtin.go               # Executor prompt/context/tool 准备
 │   │   ├── context.go               # Agent run 上下文构建器
 │   │   ├── tool.go                  # 动态内建工具/toolset 组装
 │   │   └── evolver.go               # Agent/meta 进化 Agent 工厂
 │   ├── prompt/                      # 内嵌提示词模板
 │   │   └── template/                # Markdown 提示词模板
 │   ├── config/                      # YAML + 环境变量配置 (viper)，内嵌 config.example.yaml
-│   ├── cli/                         # Cobra CLI 命令 (init, run, reflect, im, configure, toolsets, sessions, runtime)
+│   ├── cli/                         # Cobra CLI 命令 (init, run, reflect, im, configure, toolsets, session, runtime)
 │   ├── tui/                         # Terminal UI
 │   │   ├── tui.go                   # 兼容 wrapper
-│   │   ├── app/                     # Model、runtime、sessions、commands、dialogs、layout
+│   │   ├── app/                     # Model、runtime、session、commands、dialogs、layout
 │   │   ├── components/              # Chat、input、toolbar、sidebar renderers
 │   │   └── styles/                  # Dark theme、icons、color themes
 │   ├── model/                       # 多 Provider LLM 工厂
-│   ├── memory/                      # 扁平文件记忆：全局事实与 SOP
-│   ├── session/                     # 持久 SessionService：SQLite + compact log、file tracking、references
-│   ├── store/                       # GORM/SQLite 持久化模型与读写
-│   ├── runtime/                     # 事件驱动 runtime 与 audit logging
+│   ├── memory/                      # 扁平文件记忆与搜索服务：事实与 SOP
+│   ├── session/                     # 持久 SessionService：compact log、file tracking、references
+│   ├── store/
+│   │   ├── db/                      # GORM/SQLite 模型、DBRegistry、记忆索引、session/mailbox 存储
+│   │   └── fs/                      # 文件型存储，例如精简 session log
+│   ├── runtime/                     # run 流式处理、session compact、loop detection
+│   ├── bus/                         # 进程内事件 broker、channel 任务队列、审计镜像
 │   ├── im/                          # 即时通信接入
 │   ├── plugin/                      # 插件注册中心 + 内建插件
 │   ├── hook/                        # Hook 管理器 + 脚本执行器
@@ -356,6 +349,8 @@ superman/
 ├── skills/                           # Skill 定义目录（ADK skilltoolset）
 ├── config.example.yaml              # 指向 internal/config/config.example.yaml 的符号链接
 ├── config/tasks/                    # 调度任务定义示例
+├── data/
+│   └── session/                    # Session history
 ├── go.mod
 └── go.sum
 ```
@@ -368,32 +363,30 @@ superman/
 ~/.sm/                                    # workspace（默认: $HOME/.sm）
 ├── config.yaml                           # 用户配置（由 `sm init` 或 `sm configure` 创建）
 ├── tui.log                               # 终端界面 runtime 日志（重定向，避免干扰界面）
-├── state.db                              # SQLite session/message 元数据与完整消息
-├── sessions/                             # 精简会话日志与 snapshots
-│   ├── <id>.log                          # LLM evolution projection
-│   └── snapshots/                        # 文件 revision snapshots
-├── runtime/
-│   └── events.jsonl                      # runtime audit event log
-├── evolution/                            # Agent evolver + meta evolver 运行时根目录
-│   ├── memory/                           # Evolver 自己的扁平文件记忆
-│   │   ├── l1.toml
-│   │   └── l2/
-│   ├── state.db                          # Evolver SQLite session/message 元数据
-│   └── sessions/
-│       ├── agent-evolution-<...>.log     # Agent 进化会话日志
-│       └── meta-evolution-<...>.log      # Meta 进化会话日志
+├── memory/                               # 按 agent 分区的扁平文件记忆
+│   ├── superman/
+│   │   ├── l1.toml                       # L1 全局事实
+│   │   └── l2/                           # L2 SOP 文件（*.md）
+│   └── {expert_name}/
+│       ├── l1.toml
+│       └── l2/
+├── session/                              # 按 agent 分区的精简会话日志与 snapshots
+│   ├── superman/
+│   │   ├── <id>.log
+│   │   └── snapshots/
+│   └── {expert_name}/
+│       └── <id>.log
+├── state/                                # 按 agent 分区的状态库与 soul
+│   ├── state.db                          # 全局 DB：跨 owner 记忆搜索索引与内部 mailbox 状态
+│   ├── superman/
+│   │   └── state.db
+│   └── {expert_name}/
+│       ├── soul.md                       # 专家系统提示词
+│       └── state.db
+├── bus/
+│   └── events.jsonl                      # 统一 bus/runtime 审计镜像；任务队列在进程内
 ├── hooks/                                # Hook 事件脚本（11 种生命周期事件）
-├── skills/                               # Skill 定义（SKILL.md）
-├── memory/                               # superman 扁平文件记忆
-│   ├── l1.toml                           # L1 全局事实
-│   ├── l2/                               # L2 SOP 文件（*.md）
-└── experts/
-    └── {expert_name}/
-        ├── soul.md                       # 专家系统提示词；目录名就是专家名
-        ├── memory/                       # 专家独立记忆
-        ├── state.db                      # 专家 SQLite session/message 元数据
-        └── sessions/
-            └── <id>.log                  # 专家精简会话日志
+└── skills/                               # Skill 定义（SKILL.md）
 ```
 
 ## 🏗️ 构建

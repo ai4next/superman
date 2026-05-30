@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -16,14 +15,16 @@ import (
 	"time"
 
 	"github.com/ai4next/superman/internal/global"
-	persiststore "github.com/ai4next/superman/internal/store"
+	persistdb "github.com/ai4next/superman/internal/store/db"
+	persistfs "github.com/ai4next/superman/internal/store/fs"
 	"github.com/google/uuid"
 	adksession "google.golang.org/adk/session"
+	"gorm.io/gorm"
 )
 
 type Service struct {
 	mu         sync.RWMutex
-	db         *persiststore.DB
+	db         *persistdb.DB
 	rootDir    string
 	sessionDir string
 	sessions   map[string]*storedSession
@@ -37,12 +38,13 @@ func NewService() (adksession.Service, error) {
 }
 
 func NewServiceInRoot(rootDir string) (adksession.Service, error) {
+	agentName := agentNameFromRoot(rootDir)
 	if rootDir == "" {
-		rootDir = global.Config().Workspace
+		rootDir = global.AgentStateDir(agentName)
 	}
 	s := &Service{
 		rootDir:    rootDir,
-		sessionDir: filepath.Join(rootDir, "sessions"),
+		sessionDir: global.AgentSessionsDir(agentName),
 		sessions:   make(map[string]*storedSession),
 		appState:   make(map[string]map[string]any),
 		userState:  make(map[string]map[string]map[string]any),
@@ -51,15 +53,25 @@ func NewServiceInRoot(rootDir string) (adksession.Service, error) {
 	if err := os.MkdirAll(s.sessionDir, 0755); err != nil {
 		return nil, fmt.Errorf("create session dir: %w", err)
 	}
-	db, err := persiststore.OpenPath(filepath.Join(rootDir, "state.db"))
+	registry, err := global.DBRegistry()
 	if err != nil {
 		return nil, err
 	}
-	s.db = db
+	s.db, err = registry.EnsureAgentDB(agentName, global.AgentStateDBPath(agentName))
+	if err != nil {
+		return nil, err
+	}
 	if err := s.load(); err != nil {
 		return nil, err
 	}
 	return s, nil
+}
+
+func agentNameFromRoot(rootDir string) string {
+	if rootDir == "" || rootDir == global.Config().Workspace {
+		return "superman"
+	}
+	return filepath.Base(rootDir)
 }
 
 func (s *Service) sessionLogPath(sessionID string) string {
@@ -917,9 +929,6 @@ func (s *Service) Import(appName, userID string, data ImportData) (Metadata, err
 
 func (s *Service) load() error {
 	if s.db != nil {
-		if err := s.migrateLegacySessions(); err != nil {
-			return err
-		}
 		return s.loadFromDB()
 	}
 	entries, err := os.ReadDir(s.sessionDir)
@@ -960,34 +969,26 @@ func (s *Service) loadFromDB() error {
 	}
 	for _, row := range rows {
 		stored := storedSession{
-			ID:               row.ID,
+			ID:               int64(row.ID),
 			AppName:          row.AppName,
 			UserID:           row.UserID,
-			SessionID:        formatSessionID(row.ID),
+			SessionID:        formatSessionID(int64(row.ID)),
 			Title:            row.Title,
 			PromptTokens:     row.PromptTokens,
 			CompletionTokens: row.CompletionTokens,
 			SummaryMessageID: row.SummaryMessageID,
+			CreatedAt:        row.CreatedAt,
+			UpdatedAt:        row.UpdatedAt,
 		}
 		if row.StateJSON != "" {
 			if err := json.Unmarshal([]byte(row.StateJSON), &stored.State); err != nil {
 				return fmt.Errorf("decode session state %s: %w", stored.SessionID, err)
 			}
 		}
-		var err error
-		if stored.CreatedAt, err = parseStoredTime(row.CreatedAt); err != nil {
-			return fmt.Errorf("decode created_at for %s: %w", stored.SessionID, err)
-		}
-		if stored.UpdatedAt, err = parseStoredTime(row.UpdatedAt); err != nil {
-			return fmt.Errorf("decode updated_at for %s: %w", stored.SessionID, err)
-		}
 		if err := s.loadMessagesFromDB(&stored); err != nil {
 			return err
 		}
 		if err := s.loadSessionDetailsFromDB(&stored); err != nil {
-			return err
-		}
-		if err := s.loadLegacySessionSidecar(&stored); err != nil {
 			return err
 		}
 		if stored.State == nil {
@@ -1012,16 +1013,8 @@ func (s *Service) loadMessagesFromDB(stored *storedSession) error {
 	}
 	stored.Messages = make([]Message, 0, len(rows))
 	for _, row := range rows {
-		createdAt, err := parseStoredTime(row.CreatedAt)
-		if err != nil {
-			return fmt.Errorf("decode message created_at %s: %w", row.ID, err)
-		}
-		updatedAt, err := parseStoredTime(row.UpdatedAt)
-		if err != nil {
-			return fmt.Errorf("decode message updated_at %s: %w", row.ID, err)
-		}
 		stored.Messages = append(stored.Messages, Message{
-			ID:           row.ID,
+			ID:           row.MessageID,
 			SessionID:    stored.SessionID,
 			EventID:      row.EventID,
 			InvocationID: row.InvocationID,
@@ -1033,8 +1026,8 @@ func (s *Service) loadMessagesFromDB(stored *storedSession) error {
 			Result:       row.Result,
 			Status:       row.Status,
 			Summary:      row.Summary,
-			CreatedAt:    createdAt,
-			UpdatedAt:    updatedAt,
+			CreatedAt:    row.CreatedAt,
+			UpdatedAt:    row.UpdatedAt,
 		})
 	}
 	return nil
@@ -1067,173 +1060,12 @@ func (s *Service) loadSessionDetailsFromDB(stored *storedSession) error {
 		stored.FileRevisions = append(stored.FileRevisions, revision)
 	}
 	for _, row := range queue {
-		prompt := QueuedPrompt{ID: row.ID, Content: row.Content}
-		prompt.CreatedAt, _ = parseStoredTime(row.CreatedAt)
+		prompt := QueuedPrompt{ID: row.PromptID, Content: row.Content, CreatedAt: row.CreatedAt}
 		stored.PromptQueue = append(stored.PromptQueue, prompt)
 	}
 	for _, row := range refs {
-		ref := SessionReference{SessionID: row.RefID, Role: MessageRole(row.Role), Preview: row.Preview}
-		ref.CreatedAt, _ = parseStoredTime(row.CreatedAt)
+		ref := SessionReference{SessionID: row.RefID, Role: MessageRole(row.Role), Preview: row.Preview, CreatedAt: row.CreatedAt}
 		stored.References = append(stored.References, ref)
-	}
-	return nil
-}
-
-func (s *Service) loadLegacySessionSidecar(stored *storedSession) error {
-	if err := s.loadLegacySessionJSON(stored); err != nil {
-		return err
-	}
-	return s.loadLegacySessionJSONL(stored)
-}
-
-func (s *Service) loadLegacySessionJSON(stored *storedSession) error {
-	path := filepath.Join(s.sessionDir, stored.SessionID+".json")
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	var doc sessionJSONDocument
-	if err := json.Unmarshal(data, &doc); err != nil {
-		return fmt.Errorf("decode %s: %w", path, err)
-	}
-	stored.Events = doc.Events
-	if len(stored.Messages) == 0 {
-		stored.Messages = doc.Messages
-	}
-	stored.Files = sessionFilesMap(doc.Files)
-	stored.FileRevisions = doc.FileRevisions
-	stored.PromptQueue = doc.PromptQueue
-	stored.References = doc.References
-	return nil
-}
-
-func (s *Service) loadLegacySessionJSONL(stored *storedSession) error {
-	path := filepath.Join(s.sessionDir, stored.SessionID+".jsonl")
-	file, err := os.Open(path)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	dec := json.NewDecoder(file)
-	for {
-		var item sessionJSONLItem
-		if err := dec.Decode(&item); err != nil {
-			if err == io.EOF {
-				break
-			}
-			return fmt.Errorf("decode %s: %w", path, err)
-		}
-		switch item.Type {
-		case "event":
-			var event adksession.Event
-			if err := json.Unmarshal(item.Data, &event); err != nil {
-				return fmt.Errorf("decode event for %s: %w", stored.SessionID, err)
-			}
-			stored.Events = append(stored.Events, &event)
-		case "message":
-			var msg Message
-			if err := json.Unmarshal(item.Data, &msg); err != nil {
-				return fmt.Errorf("decode message for %s: %w", stored.SessionID, err)
-			}
-			stored.Messages = append(stored.Messages, msg)
-		case "file":
-			var file SessionFile
-			if err := json.Unmarshal(item.Data, &file); err != nil {
-				return fmt.Errorf("decode file for %s: %w", stored.SessionID, err)
-			}
-			if stored.Files == nil {
-				stored.Files = make(map[string]SessionFile)
-			}
-			stored.Files[file.Path] = file
-		case "file_revision":
-			var revision FileRevision
-			if err := json.Unmarshal(item.Data, &revision); err != nil {
-				return fmt.Errorf("decode file revision for %s: %w", stored.SessionID, err)
-			}
-			stored.FileRevisions = append(stored.FileRevisions, revision)
-		case "queued_prompt":
-			var prompt QueuedPrompt
-			if err := json.Unmarshal(item.Data, &prompt); err != nil {
-				return fmt.Errorf("decode queued prompt for %s: %w", stored.SessionID, err)
-			}
-			stored.PromptQueue = append(stored.PromptQueue, prompt)
-		case "session_reference":
-			var ref SessionReference
-			if err := json.Unmarshal(item.Data, &ref); err != nil {
-				return fmt.Errorf("decode session reference for %s: %w", stored.SessionID, err)
-			}
-			stored.References = append(stored.References, ref)
-		}
-	}
-	return nil
-}
-
-type sessionJSONDocument struct {
-	Events        []*adksession.Event `json:"events,omitempty"`
-	Messages      []Message           `json:"messages,omitempty"`
-	Files         []SessionFile       `json:"files,omitempty"`
-	FileRevisions []FileRevision      `json:"file_revisions,omitempty"`
-	PromptQueue   []QueuedPrompt      `json:"prompt_queue,omitempty"`
-	References    []SessionReference  `json:"references,omitempty"`
-}
-
-type sessionJSONLItem struct {
-	Type string          `json:"type"`
-	Data json.RawMessage `json:"data"`
-}
-
-func sessionFilesMap(files []SessionFile) map[string]SessionFile {
-	out := make(map[string]SessionFile, len(files))
-	for _, file := range files {
-		if file.Path != "" {
-			out[file.Path] = file
-		}
-	}
-	return out
-}
-
-func (s *Service) migrateLegacySessions() error {
-	entries, err := os.ReadDir(s.sessionDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("read session dir: %w", err)
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-			continue
-		}
-		path := filepath.Join(s.sessionDir, entry.Name())
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		var stored storedSession
-		if err := json.Unmarshal(data, &stored); err != nil {
-			return fmt.Errorf("decode %s: %w", entry.Name(), err)
-		}
-		if stored.AppName == "" || stored.UserID == "" || stored.SessionID == "" {
-			continue
-		}
-		if stored.State == nil {
-			stored.State = make(map[string]any)
-		}
-		if stored.Files == nil {
-			stored.Files = make(map[string]SessionFile)
-		}
-		if err := s.persistLocked(&stored); err != nil {
-			return fmt.Errorf("migrate %s: %w", entry.Name(), err)
-		}
-		if err := os.Rename(path, path+".legacy"); err != nil && !os.IsNotExist(err) {
-			return err
-		}
 	}
 	return nil
 }
@@ -1289,7 +1121,7 @@ func (s *Service) persistLocked(stored *storedSession) error {
 		}
 	}
 	if s.db != nil {
-		return s.db.WriteSessionLogPath(s.sessionLogPath(stored.SessionID), logMessages(stored.Messages))
+		return persistfs.WriteSessionLogPath(s.sessionLogPath(stored.SessionID), logMessages(stored.Messages))
 	}
 	return nil
 }
@@ -1299,8 +1131,8 @@ func (s *Service) persistMetadataLocked(stored *storedSession) error {
 	if err != nil {
 		return err
 	}
-	row, err := s.db.SaveSession(persiststore.Session{
-		ID:               stored.ID,
+	row, err := s.db.SaveSession(persistdb.SessionRow{
+		Model:            gorm.Model{ID: uint(stored.ID), CreatedAt: stored.CreatedAt, UpdatedAt: stored.UpdatedAt},
 		AppName:          stored.AppName,
 		UserID:           stored.UserID,
 		Title:            stored.Title,
@@ -1311,29 +1143,28 @@ func (s *Service) persistMetadataLocked(stored *storedSession) error {
 		FileCount:        len(stored.Files),
 		MessageCount:     len(stored.Messages),
 		QueuedPrompts:    len(stored.PromptQueue),
-		CreatedAt:        formatStoredTime(stored.CreatedAt),
-		UpdatedAt:        formatStoredTime(stored.UpdatedAt),
 	})
 	if err != nil {
 		return err
 	}
 	if stored.ID == 0 {
-		stored.ID = row.ID
+		stored.ID = int64(row.ID)
 		stored.SessionID = formatSessionID(stored.ID)
 	}
 	return nil
 }
 
 func (s *Service) persistMessagesLocked(stored *storedSession) error {
-	rows := make([]persiststore.Message, 0, len(stored.Messages))
+	rows := make([]persistdb.MessageRow, 0, len(stored.Messages))
 	for i, msg := range stored.Messages {
 		id := msg.ID
 		if id == "" {
 			id = uuid.NewString()
 			stored.Messages[i].ID = id
 		}
-		rows = append(rows, persiststore.Message{
-			ID:           id,
+		rows = append(rows, persistdb.MessageRow{
+			Model:        gorm.Model{CreatedAt: msg.CreatedAt, UpdatedAt: msg.UpdatedAt},
+			MessageID:    id,
 			Position:     i,
 			EventID:      msg.EventID,
 			InvocationID: msg.InvocationID,
@@ -1345,8 +1176,6 @@ func (s *Service) persistMessagesLocked(stored *storedSession) error {
 			Result:       msg.Result,
 			Status:       msg.Status,
 			Summary:      msg.Summary,
-			CreatedAt:    formatStoredTime(msg.CreatedAt),
-			UpdatedAt:    formatStoredTime(msg.UpdatedAt),
 		})
 	}
 	return s.db.SaveMessages(stored.ID, rows)
@@ -1354,9 +1183,9 @@ func (s *Service) persistMessagesLocked(stored *storedSession) error {
 
 func (s *Service) persistDetailsLocked(stored *storedSession) error {
 	files := recentSessionFiles(stored.Files, 0)
-	fileRows := make([]persiststore.File, 0, len(files))
+	fileRows := make([]persistdb.FileRow, 0, len(files))
 	for _, file := range files {
-		fileRows = append(fileRows, persiststore.File{
+		fileRows = append(fileRows, persistdb.FileRow{
 			Path:       file.Path,
 			ReadAt:     formatStoredTime(file.ReadAt),
 			WrittenAt:  formatStoredTime(file.WrittenAt),
@@ -1365,47 +1194,47 @@ func (s *Service) persistDetailsLocked(stored *storedSession) error {
 			LastAccess: string(file.LastAccess),
 		})
 	}
-	revisionRows := make([]persiststore.FileRevision, 0, len(stored.FileRevisions))
+	revisionRows := make([]persistdb.FileRevisionRow, 0, len(stored.FileRevisions))
 	for i, revision := range stored.FileRevisions {
 		data, err := json.Marshal(revision)
 		if err != nil {
 			return err
 		}
-		revisionRows = append(revisionRows, persiststore.FileRevision{
-			ID:        revision.ID,
-			Position:  i,
-			Path:      revision.Path,
-			Action:    revision.Action,
-			DataJSON:  string(data),
-			CreatedAt: formatStoredTime(revision.CreatedAt),
+		revisionRows = append(revisionRows, persistdb.FileRevisionRow{
+			Model:      gorm.Model{CreatedAt: revision.CreatedAt, UpdatedAt: revision.CreatedAt},
+			RevisionID: revision.ID,
+			Position:   i,
+			Path:       revision.Path,
+			Action:     revision.Action,
+			DataJSON:   string(data),
 		})
 	}
-	queueRows := make([]persiststore.QueuedPrompt, 0, len(stored.PromptQueue))
+	queueRows := make([]persistdb.QueuedPromptRow, 0, len(stored.PromptQueue))
 	for i, prompt := range stored.PromptQueue {
-		queueRows = append(queueRows, persiststore.QueuedPrompt{
-			ID:        prompt.ID,
-			Position:  i,
-			Content:   prompt.Content,
-			CreatedAt: formatStoredTime(prompt.CreatedAt),
+		queueRows = append(queueRows, persistdb.QueuedPromptRow{
+			Model:    gorm.Model{CreatedAt: prompt.CreatedAt, UpdatedAt: prompt.CreatedAt},
+			PromptID: prompt.ID,
+			Position: i,
+			Content:  prompt.Content,
 		})
 	}
-	refRows := make([]persiststore.Reference, 0, len(stored.References))
+	refRows := make([]persistdb.ReferenceRow, 0, len(stored.References))
 	for i, ref := range stored.References {
-		refRows = append(refRows, persiststore.Reference{
-			Position:  i,
-			RefID:     ref.SessionID,
-			Role:      string(ref.Role),
-			Preview:   ref.Preview,
-			CreatedAt: formatStoredTime(ref.CreatedAt),
+		refRows = append(refRows, persistdb.ReferenceRow{
+			Model:    gorm.Model{CreatedAt: ref.CreatedAt, UpdatedAt: ref.CreatedAt},
+			Position: i,
+			RefID:    ref.SessionID,
+			Role:     string(ref.Role),
+			Preview:  ref.Preview,
 		})
 	}
 	return s.db.SaveDetails(stored.ID, fileRows, revisionRows, queueRows, refRows)
 }
 
-func logMessages(messages []Message) []persiststore.LogMessage {
-	out := make([]persiststore.LogMessage, 0, len(messages))
+func logMessages(messages []Message) []persistfs.LogMessage {
+	out := make([]persistfs.LogMessage, 0, len(messages))
 	for _, msg := range messages {
-		out = append(out, persiststore.LogMessage{
+		out = append(out, persistfs.LogMessage{
 			Role:    string(msg.Role),
 			Content: msg.Content,
 			Tool:    msg.ToolName,
@@ -1465,7 +1294,7 @@ func (s *Service) writeSnapshotContent(content string, missing bool) error {
 	data := []byte(content)
 	sum := sha256.Sum256(data)
 	hash := fmt.Sprintf("%x", sum[:])
-	path := global.SessionSnapshotPath(hash)
+	path := s.sessionSnapshotPath(hash)
 	if _, err := os.Stat(path); err == nil {
 		return nil
 	} else if !os.IsNotExist(err) {
@@ -1488,6 +1317,14 @@ func (s *Service) writeSnapshotContent(content string, missing bool) error {
 	return nil
 }
 
+func (s *Service) sessionSnapshotsDir() string {
+	return filepath.Join(s.sessionDir, "snapshots")
+}
+
+func (s *Service) sessionSnapshotPath(hash string) string {
+	return filepath.Join(s.sessionSnapshotsDir(), hash[:2], hash)
+}
+
 func (s *Service) referencedSnapshotHashesLocked() map[string]struct{} {
 	out := make(map[string]struct{})
 	for _, stored := range s.sessions {
@@ -1504,7 +1341,7 @@ func (s *Service) referencedSnapshotHashesLocked() map[string]struct{} {
 }
 
 func (s *Service) snapshotFiles() ([]SnapshotInfo, error) {
-	root := global.SessionSnapshotsDir()
+	root := s.sessionSnapshotsDir()
 	var out []SnapshotInfo
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
@@ -1541,7 +1378,7 @@ func (s *Service) snapshotFiles() ([]SnapshotInfo, error) {
 }
 
 func (s *Service) removeEmptySnapshotDirs() error {
-	root := global.SessionSnapshotsDir()
+	root := s.sessionSnapshotsDir()
 	entries, err := os.ReadDir(root)
 	if os.IsNotExist(err) {
 		return nil

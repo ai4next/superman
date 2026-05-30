@@ -8,12 +8,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ai4next/superman/internal/bus"
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/expert"
 	"github.com/ai4next/superman/internal/global"
 	"github.com/ai4next/superman/internal/hook"
-	supermanruntime "github.com/ai4next/superman/internal/runtime"
 	supermansession "github.com/ai4next/superman/internal/session"
+	"github.com/ai4next/superman/internal/tool"
 	adkmodel "google.golang.org/adk/model"
 	"google.golang.org/genai"
 )
@@ -27,6 +28,80 @@ func (delegateFakeLLM) GenerateContent(ctx context.Context, req *adkmodel.LLMReq
 		yield(&adkmodel.LLMResponse{
 			Content: genai.NewContentFromText("expert result", genai.RoleModel),
 		}, nil)
+	}
+}
+
+func TestDelegateServiceEnqueueAndRunQueuedDelegate(t *testing.T) {
+	workspace := t.TempDir()
+	expertDir := filepath.Join(workspace, "state", "reviewer")
+	if err := os.MkdirAll(expertDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(expertDir, "soul.md"), []byte("You review code."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Workspace: workspace,
+		Model:     config.ModelConfig{Provider: "test", Name: "fake"},
+		Session:   config.SessionConfig{AppName: "app", MaxTurns: 20},
+	}
+	global.SetConfig(cfg)
+	t.Cleanup(func() { global.SetConfig(nil) })
+
+	registry := expert.NewRegistry(global.ExpertsDir())
+	if err := registry.LoadFromDisk(); err != nil {
+		t.Fatal(err)
+	}
+	queue := bus.NewChannelQueue(100)
+	defer queue.Close()
+	ds := newDelegateServiceWithQueue(delegateFakeLLM{}, registry, queue)
+
+	receipt, err := ds.EnqueueDelegate(context.Background(), tool.DelegateTaskRequest{
+		ExpertName: "reviewer",
+		Task:       "inspect queued task",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.TaskID == "" || receipt.Status != "ready" {
+		t.Fatalf("receipt = %#v", receipt)
+	}
+	running, ok, err := queue.Dequeue(bus.WorkerRef{ID: "test-worker", Queue: "experts", Type: "delegate"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected queued delegate task")
+	}
+	ds.runQueuedDelegate(context.Background(), running)
+	result, ok, err := queue.TaskResult(receipt.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || strings.TrimSpace(result.Result) != "expert result" {
+		t.Fatalf("result = %#v ok=%v", result, ok)
+	}
+}
+
+func TestDelegateServiceSubmitPlan(t *testing.T) {
+	workspace := t.TempDir()
+	cfg := &config.Config{
+		Workspace: workspace,
+	}
+	global.SetConfig(cfg)
+	t.Cleanup(func() { global.SetConfig(nil) })
+	queue := bus.NewChannelQueue(100)
+	defer queue.Close()
+	ds := newDelegateServiceWithQueue(delegateFakeLLM{}, expert.NewRegistry(global.ExpertsDir()), queue)
+	receipt, err := ds.SubmitPlan(context.Background(), `{"plan_id":"p1","goal":"g","tasks":[{"id":"t1","expert":"reviewer","input":{"prompt":"do"}}]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.PlanID != "p1" || receipt.Queued != 1 {
+		t.Fatalf("receipt = %#v", receipt)
+	}
+	if _, err := os.Stat(filepath.Join(global.PlansDir(), "p1.json")); err != nil {
+		t.Fatalf("plan not saved: %v", err)
 	}
 }
 
@@ -67,7 +142,7 @@ func TestBuildDelegateRunRequestUsesRuntimeFeatures(t *testing.T) {
 
 func TestDelegateRunPersistsSessionReferencesAndAudit(t *testing.T) {
 	workspace := t.TempDir()
-	expertDir := filepath.Join(workspace, "experts", "reviewer")
+	expertDir := filepath.Join(workspace, "state", "reviewer")
 	if err := os.MkdirAll(expertDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -126,11 +201,11 @@ func TestDelegateRunPersistsSessionReferencesAndAudit(t *testing.T) {
 	if len(refs) != 1 || refs[0].SessionID != "past" || refs[0].Preview != "prior decision" {
 		t.Fatalf("refs = %#v", refs)
 	}
-	if _, err := os.Stat(filepath.Join(global.ExpertDir("reviewer"), "sessions", "1.log")); err != nil {
+	if _, err := os.Stat(filepath.Join(global.AgentSessionsDir("reviewer"), "1.log")); err != nil {
 		t.Fatalf("expert session log missing: %v", err)
 	}
 
-	events, err := supermanruntime.ReadAuditLog(filepath.Join(workspace, "runtime", "events.jsonl"), supermanruntime.AuditFilter{
+	events, err := bus.ReadAuditLog(filepath.Join(workspace, "bus", "events.jsonl"), bus.AuditFilter{
 		SessionID: "1",
 	})
 	if err != nil {
@@ -139,11 +214,11 @@ func TestDelegateRunPersistsSessionReferencesAndAudit(t *testing.T) {
 	var hasStarted, hasText, hasFinished bool
 	for _, event := range events {
 		switch event.Type {
-		case supermanruntime.EventRunStarted:
+		case bus.EventRunStarted:
 			hasStarted = true
-		case supermanruntime.EventTextDelta:
+		case bus.EventTextDelta:
 			hasText = event.Text == "expert result"
-		case supermanruntime.EventRunFinished:
+		case bus.EventRunFinished:
 			hasFinished = true
 		}
 	}

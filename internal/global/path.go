@@ -11,7 +11,19 @@ func HooksDir() string {
 }
 
 func MemoryDir() string {
+	return AgentMemoryDir("superman")
+}
+
+func GlobalDBPath() string {
+	return filepath.Join(StateRootDir(), "state.db")
+}
+
+func MemoryRootDir() string {
 	return filepath.Join(Config().Workspace, "memory")
+}
+
+func AgentMemoryDir(name string) string {
+	return filepath.Join(MemoryRootDir(), name)
 }
 
 func L2Dir() string {
@@ -27,11 +39,27 @@ func MemoryL2Dir(memoryDir string) string {
 }
 
 func StateDBPath() string {
-	return filepath.Join(Config().Workspace, "state.db")
+	return AgentStateDBPath("superman")
+}
+
+func StateRootDir() string {
+	return filepath.Join(Config().Workspace, "state")
+}
+
+func AgentStateDir(name string) string {
+	return filepath.Join(StateRootDir(), name)
+}
+
+func AgentStateDBPath(name string) string {
+	return filepath.Join(AgentStateDir(name), "state.db")
 }
 
 func SessionsDir() string {
-	return filepath.Join(Config().Workspace, "sessions")
+	return AgentSessionsDir("superman")
+}
+
+func AgentSessionsDir(name string) string {
+	return filepath.Join(Config().Workspace, "session", name)
 }
 
 func SessionLogPath(sessionID string) string {
@@ -50,26 +78,53 @@ func RuntimeDir() string {
 	return filepath.Join(Config().Workspace, "runtime")
 }
 
+// RuntimeEventsPath is kept for compatibility. Runtime events are stored in the bus audit log.
 func RuntimeEventsPath() string {
-	return filepath.Join(RuntimeDir(), "events.jsonl")
+	return BusEventsPath()
+}
+
+func BusDir() string {
+	return filepath.Join(Config().Workspace, "bus")
+}
+
+func BusDBPath() string {
+	if Config().Bus.Path != "" {
+		return Config().Bus.Path
+	}
+	return ""
+}
+
+func BusEventsPath() string {
+	if Config().Bus.AuditLog != "" {
+		return Config().Bus.AuditLog
+	}
+	return filepath.Join(BusDir(), "events.jsonl")
+}
+
+func OrchestratorDir() string {
+	return filepath.Join(Config().Workspace, "orchestrator")
+}
+
+func PlansDir() string {
+	return filepath.Join(OrchestratorDir(), "plans")
 }
 
 func EvolutionDir() string {
-	return filepath.Join(Config().Workspace, "evolution")
+	return AgentStateDir("evolution")
 }
 
 func EvolutionMemoryDir() string {
-	return filepath.Join(EvolutionDir(), "memory")
+	return AgentMemoryDir("evolution")
 }
 
 func ExpertsDir() string {
-	return filepath.Join(Config().Workspace, "experts")
+	return StateRootDir()
 }
 
 func ExpertDir(name string) string {
-	return filepath.Join(ExpertsDir(), name)
+	return AgentStateDir(name)
 }
 
 func ExpertMemoryDir(name string) string {
-	return filepath.Join(ExpertDir(name), "memory")
+	return AgentMemoryDir(name)
 }

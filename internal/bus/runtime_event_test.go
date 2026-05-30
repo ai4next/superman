@@ -1,4 +1,4 @@
-package runtime
+package bus
 
 import (
 	"testing"
@@ -30,21 +30,6 @@ func TestFromADKEventProjectsTextAndTools(t *testing.T) {
 	}
 	if got[2].Type != EventToolCallFinished || got[2].Status != "success" {
 		t.Fatalf("tool finish = %+v", got[2])
-	}
-}
-
-func TestFromADKEventProjectsPermissionRequest(t *testing.T) {
-	ev := session.NewEvent("run-1")
-	ev.Actions.RequestedToolConfirmations = map[string]toolconfirmation.ToolConfirmation{
-		"tool-1": {Hint: "approve"},
-	}
-
-	got := FromADKEvent("session-1", ev)
-	if len(got) != 1 {
-		t.Fatalf("len = %d, want 1", len(got))
-	}
-	if got[0].Type != EventPermissionRequested || got[0].ToolID != "tool-1" || !got[0].Permission {
-		t.Fatalf("permission event = %+v", got[0])
 	}
 }
 

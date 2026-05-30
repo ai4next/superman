@@ -43,6 +43,8 @@ func Load(configPath string) (*Config, error) {
 	var cfg Config
 	skillsEnabledSet := v.IsSet("skills.enabled")
 	loopDetectionEnabledSet := v.IsSet("session.loop_detection.enabled")
+	memorySearchEnabledSet := v.IsSet("memory.search.enabled")
+	memoryMailboxEnabledSet := v.IsSet("memory.mailbox.enabled")
 
 	if err := v.Unmarshal(&cfg, viper.DecodeHook(stringToDurationHook())); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
@@ -55,7 +57,7 @@ func Load(configPath string) (*Config, error) {
 	expandPaths(&cfg)
 	expandIMOptions(&cfg)
 
-	applyDefaults(&cfg, skillsEnabledSet, loopDetectionEnabledSet)
+	applyDefaults(&cfg, skillsEnabledSet, loopDetectionEnabledSet, memorySearchEnabledSet, memoryMailboxEnabledSet)
 	normalizePaths(&cfg)
 	return &cfg, nil
 }
@@ -96,6 +98,8 @@ func stringToDurationHook() mapstructure.DecodeHookFunc {
 
 func expandPaths(cfg *Config) {
 	cfg.Workspace = os.ExpandEnv(cfg.Workspace)
+	cfg.Bus.Path = os.ExpandEnv(cfg.Bus.Path)
+	cfg.Bus.AuditLog = os.ExpandEnv(cfg.Bus.AuditLog)
 	cfg.Reflect.Scheduler.TasksDir = os.ExpandEnv(cfg.Reflect.Scheduler.TasksDir)
 	for i, path := range cfg.Skills.Paths {
 		cfg.Skills.Paths[i] = os.ExpandEnv(path)
@@ -109,6 +113,12 @@ func expandPaths(cfg *Config) {
 }
 
 func normalizePaths(cfg *Config) {
+	if cfg.Bus.Path != "" && !filepath.IsAbs(cfg.Bus.Path) {
+		cfg.Bus.Path = filepath.Join(cfg.Workspace, cfg.Bus.Path)
+	}
+	if cfg.Bus.AuditLog != "" && !filepath.IsAbs(cfg.Bus.AuditLog) {
+		cfg.Bus.AuditLog = filepath.Join(cfg.Workspace, cfg.Bus.AuditLog)
+	}
 	for i, path := range cfg.Skills.Paths {
 		if path == "" || filepath.IsAbs(path) {
 			continue
@@ -118,7 +128,7 @@ func normalizePaths(cfg *Config) {
 }
 
 // applyDefaults fills in sensible defaults for any zero-value fields.
-func applyDefaults(cfg *Config, skillsEnabledSet bool, loopDetectionEnabledSet bool) {
+func applyDefaults(cfg *Config, skillsEnabledSet bool, loopDetectionEnabledSet bool, memorySearchEnabledSet bool, memoryMailboxEnabledSet bool) {
 	if cfg.Workspace == "" {
 		cfg.Workspace = os.ExpandEnv("$HOME/.sm")
 	}
@@ -158,6 +168,19 @@ func applyDefaults(cfg *Config, skillsEnabledSet bool, loopDetectionEnabledSet b
 	if cfg.Memory.L2.MaxIndexItems == 0 {
 		cfg.Memory.L2.MaxIndexItems = 50
 	}
+	if !memorySearchEnabledSet {
+		cfg.Memory.Search.Enabled = true
+	}
+	if !cfg.Memory.Search.FTSEnabled && !cfg.Memory.Search.ScanEnabled && !cfg.Memory.Search.VectorEnabled {
+		cfg.Memory.Search.FTSEnabled = true
+		cfg.Memory.Search.ScanEnabled = true
+	}
+	if cfg.Memory.Search.MaxResults == 0 {
+		cfg.Memory.Search.MaxResults = 8
+	}
+	if !memoryMailboxEnabledSet {
+		cfg.Memory.Mailbox.Enabled = true
+	}
 	if cfg.Session.MaxTurns == 0 {
 		cfg.Session.MaxTurns = 75
 	}
@@ -181,6 +204,12 @@ func applyDefaults(cfg *Config, skillsEnabledSet bool, loopDetectionEnabledSet b
 	}
 	if cfg.Expert.MaxCount == 0 {
 		cfg.Expert.MaxCount = 10
+	}
+	if cfg.Bus.AuditLog == "" {
+		cfg.Bus.AuditLog = filepath.Join(cfg.Workspace, "bus", "events.jsonl")
+	}
+	if cfg.Bus.Queue.MaxSize == 0 {
+		cfg.Bus.Queue.MaxSize = 100
 	}
 	if cfg.Reflect.Autonomous.IdleTimeout == 0 {
 		cfg.Reflect.Autonomous.IdleTimeout = Duration(30 * time.Minute)

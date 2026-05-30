@@ -16,12 +16,12 @@ import (
 	"google.golang.org/genai"
 
 	supermanagent "github.com/ai4next/superman/internal/agent"
+	"github.com/ai4next/superman/internal/bus"
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/global"
 	"github.com/ai4next/superman/internal/hook"
 	"github.com/ai4next/superman/internal/memory"
 	"github.com/ai4next/superman/internal/prompt"
-	supermanruntime "github.com/ai4next/superman/internal/runtime"
 	supermansession "github.com/ai4next/superman/internal/session"
 )
 
@@ -41,45 +41,38 @@ type evolutionPromptData struct {
 	CanCreateExpert    bool
 	CultivateExperts   bool
 	CanEditSoul        bool
+	MailboxPath        string
+	MailboxMessages    []memory.MailboxMessage
 }
 
 // Evolution processes completed-run signal and evolves long-lived runtime assets
-// from completed sessions using an ADK agent with read, write, patch,
+// from completed session using an ADK agent with read, write, patch,
 // and exec tools.
 //
 // The agent handles memory consolidation (facts + SOPs) and can optionally
-// cultivate experts. The completed-run signal defines the root directory:
-//   - Superman → workspace memory/sessions and experts/{name}/soul.md
-//   - Expert   → experts/{expert_name}/memory and sessions under that expert
+// cultivate experts. The completed-run signal defines the agent namespace:
+//   - Superman → memory/superman, session/superman, state/{expert}/soul.md
+//   - Expert   → memory/{expert}, session/{expert}, state/{expert}/soul.md
 type Evolution struct {
 	supermanRunner *runner.Runner
 	expertRunner   *runner.Runner
 	metaRunner     *runner.Runner
 	signal         chan hook.EvolutionSignal
-	sessions       adksession.Service
-	broker         *supermanruntime.Broker
+	session        adksession.Service
+	broker         bus.Broker
 }
 
 // NewEvolution creates an ADK agent for memory consolidation and optional expert cultivation.
-func NewEvolution(llm model.LLM, sessions adksession.Service) (*Evolution, error) {
-	memSvc := memory.NewInRoot(global.EvolutionMemoryDir())
-	if err := memSvc.LoadFromDisk(); err != nil {
-		return nil, fmt.Errorf("load evolution memory: %w", err)
-	}
-	sessionService, err := supermansession.NewServiceInRoot(global.EvolutionDir())
-	if err != nil {
-		return nil, fmt.Errorf("create evolution session service: %w", err)
-	}
-
-	supermanRunner, err := newEvolutionRunner(llm, memSvc, sessionService, supermanagent.SupermanEvolverName, supermanagent.NewEvolver)
+func NewEvolution(llm model.LLM, session adksession.Service) (*Evolution, error) {
+	supermanRunner, err := newEvolutionRunner(llm, supermanagent.SupermanEvolverName, supermanagent.NewEvolver)
 	if err != nil {
 		return nil, err
 	}
-	expertRunner, err := newEvolutionRunner(llm, memSvc, sessionService, supermanagent.ExpertEvolverName, supermanagent.NewExpertEvolver)
+	expertRunner, err := newEvolutionRunner(llm, supermanagent.ExpertEvolverName, supermanagent.NewExpertEvolver)
 	if err != nil {
 		return nil, err
 	}
-	metaRunner, err := newEvolutionRunner(llm, memSvc, sessionService, supermanagent.MetaEvolverName, supermanagent.NewMetaEvolver)
+	metaRunner, err := newEvolutionRunner(llm, supermanagent.MetaEvolverName, supermanagent.NewMetaEvolver)
 	if err != nil {
 		return nil, err
 	}
@@ -89,13 +82,21 @@ func NewEvolution(llm model.LLM, sessions adksession.Service) (*Evolution, error
 		expertRunner:   expertRunner,
 		metaRunner:     metaRunner,
 		signal:         make(chan hook.EvolutionSignal, 16),
-		sessions:       sessions,
+		session:        session,
 	}, nil
 }
 
 type evolverFactory func(model.LLM, *config.Config, *memory.Service) (adkagent.Agent, error)
 
-func newEvolutionRunner(llm model.LLM, memSvc *memory.Service, sessionService adksession.Service, appName string, factory evolverFactory) (*runner.Runner, error) {
+func newEvolutionRunner(llm model.LLM, appName string, factory evolverFactory) (*runner.Runner, error) {
+	memSvc := memory.NewInRoot(global.AgentMemoryDir(appName))
+	if err := memSvc.LoadFromDisk(); err != nil {
+		return nil, fmt.Errorf("load %s memory: %w", appName, err)
+	}
+	sessionService, err := supermansession.NewServiceInRoot(global.AgentStateDir(appName))
+	if err != nil {
+		return nil, fmt.Errorf("create %s session service: %w", appName, err)
+	}
 	a, err := factory(llm, global.Config(), memSvc)
 	if err != nil {
 		return nil, err
@@ -112,7 +113,7 @@ func newEvolutionRunner(llm model.LLM, memSvc *memory.Service, sessionService ad
 	return r, nil
 }
 
-func (e *Evolution) SetBroker(broker *supermanruntime.Broker) {
+func (e *Evolution) SetBroker(broker bus.Broker) {
 	e.broker = broker
 }
 
@@ -138,7 +139,7 @@ func evolutionDataFromScope(scope evolutionScope) evolutionPromptData {
 		}
 	}
 	l1Sections := memory.CountL1Sections(scope.L1Path)
-	return evolutionPromptData{
+	data := evolutionPromptData{
 		Role:               scope.Role,
 		AgentName:          scope.AgentName,
 		RootDir:            scope.RootDir,
@@ -153,7 +154,14 @@ func evolutionDataFromScope(scope evolutionScope) evolutionPromptData {
 		CanCreateExpert:    canCreateExpert,
 		CultivateExperts:   scope.ExpertDir != "",
 		CanEditSoul:        scope.CanEditSoul,
+		MailboxPath:        global.GlobalDBPath(),
 	}
+	if mailbox := memory.NewMailboxService(cfg); mailbox != nil {
+		if messages, err := mailbox.Pending(scope.AgentName, 20); err == nil {
+			data.MailboxMessages = messages
+		}
+	}
+	return data
 }
 
 type evolutionScope struct {
@@ -190,12 +198,12 @@ func evolutionScopeFromSignal(signal hook.EvolutionSignal) evolutionScope {
 		Role:           role,
 		AgentName:      agentName,
 		RootDir:        rootDir,
-		L1Path:         global.MemoryL1Path(filepath.Join(rootDir, "memory")),
-		SOPDir:         global.MemoryL2Dir(filepath.Join(rootDir, "memory")),
-		SessionLogPath: filepath.Join(rootDir, "sessions", signal.SessionID+".log"),
+		L1Path:         global.MemoryL1Path(global.AgentMemoryDir(agentName)),
+		SOPDir:         global.MemoryL2Dir(global.AgentMemoryDir(agentName)),
+		SessionLogPath: filepath.Join(global.AgentSessionsDir(agentName), signal.SessionID+".log"),
 	}
 	if role == "superman" {
-		scope.ExpertDir = filepath.Join(rootDir, "experts")
+		scope.ExpertDir = global.StateRootDir()
 	} else if role == "expert" {
 		scope.SoulPath = filepath.Join(rootDir, "soul.md")
 		scope.CanEditSoul = true
@@ -231,12 +239,12 @@ func (e *Evolution) Loop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case signal := <-e.signal:
-			e.publish(supermanruntime.EvolutionStarted(signal.SessionID, signal.Role))
+			e.publish(bus.EvolutionStarted(signal.SessionID, signal.Role))
 			if err := e.runAgent(ctx, signal); err != nil {
-				e.publish(supermanruntime.EvolutionFailed(signal.SessionID, signal.Role, err))
+				e.publish(bus.EvolutionFailed(signal.SessionID, signal.Role, err))
 				log.Printf("[evolution] %s: %v", signal.SessionID, err)
 			} else {
-				e.publish(supermanruntime.EvolutionFinished(signal.SessionID, signal.Role, ""))
+				e.publish(bus.EvolutionFinished(signal.SessionID, signal.Role, ""))
 			}
 		}
 	}
@@ -285,7 +293,7 @@ func (e *Evolution) runMetaEvolution(ctx context.Context, agentEvolutionSessionI
 		SessionID: agentEvolutionSessionID,
 		AgentName: supermanagent.MetaEvolverName,
 		Role:      "meta",
-		RootDir:   global.EvolutionDir(),
+		RootDir:   global.AgentStateDir(supermanagent.MetaEvolverName),
 	})
 	data := evolutionDataFromScope(scope)
 	instruction, err := renderEvolutionPrompt(data)
@@ -330,9 +338,9 @@ func (e *Evolution) runnerFor(scope evolutionScope) (*runner.Runner, error) {
 	return e.supermanRunner, nil
 }
 
-func (e *Evolution) publish(event supermanruntime.Event) {
+func (e *Evolution) publish(event bus.Event) {
 	if e != nil && e.broker != nil {
-		e.broker.Publish(event)
+		_ = e.broker.Publish(context.Background(), event)
 	}
 }
 

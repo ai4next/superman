@@ -12,8 +12,9 @@ import (
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/global"
 	"github.com/ai4next/superman/internal/hook"
-	supermanruntime "github.com/ai4next/superman/internal/runtime"
 	adkmodel "google.golang.org/adk/model"
+
+	"github.com/ai4next/superman/internal/bus"
 )
 
 type evolutionFakeLLM struct{}
@@ -28,17 +29,20 @@ func TestEvolutionLoopPublishesFailedEvent(t *testing.T) {
 	global.SetConfig(&config.Config{Workspace: t.TempDir()})
 	t.Cleanup(func() { global.SetConfig(nil) })
 
-	broker := supermanruntime.NewBroker()
+	broker := bus.NewMemoryBroker()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	events := broker.Subscribe(ctx)
+	events, err := broker.Subscribe(ctx, bus.EventFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	e := &Evolution{signal: make(chan hook.EvolutionSignal, 1)}
 	e.SetBroker(broker)
 	go e.Loop(ctx)
 	e.signal <- hook.EvolutionSignal{SessionID: "s1", Role: "superman"}
 
-	var got []supermanruntime.Event
+	var got []bus.Event
 	deadline := time.After(time.Second)
 	for len(got) < 2 {
 		select {
@@ -48,10 +52,10 @@ func TestEvolutionLoopPublishesFailedEvent(t *testing.T) {
 			t.Fatalf("timed out waiting for evolution events: %+v", got)
 		}
 	}
-	if got[0].Type != supermanruntime.EventEvolutionStarted {
+	if got[0].Type != bus.EventEvolutionStarted {
 		t.Fatalf("first event = %+v", got[0])
 	}
-	if got[1].Type != supermanruntime.EventEvolutionFailed || strings.TrimSpace(got[1].Error) == "" {
+	if got[1].Type != bus.EventEvolutionFailed || strings.TrimSpace(got[1].Error) == "" {
 		t.Fatalf("second event = %+v", got[1])
 	}
 }
@@ -79,12 +83,20 @@ func TestNewEvolutionCreatesPersistentEvolutionRoot(t *testing.T) {
 		t.Fatalf("meta evolution runner was not initialized: %#v", e)
 	}
 	for _, path := range []string{
-		filepath.Join(workspace, "evolution"),
-		filepath.Join(workspace, "evolution", "memory"),
-		filepath.Join(workspace, "evolution", "memory", "l1.toml"),
-		filepath.Join(workspace, "evolution", "memory", "l2"),
-		filepath.Join(workspace, "evolution", "sessions"),
-		filepath.Join(workspace, "evolution", "state.db"),
+		global.AgentStateDir("superman-evolver"),
+		global.AgentMemoryDir("superman-evolver"),
+		filepath.Join(global.AgentMemoryDir("superman-evolver"), "l1.toml"),
+		filepath.Join(global.AgentMemoryDir("superman-evolver"), "l2"),
+		global.AgentSessionsDir("superman-evolver"),
+		global.AgentStateDBPath("superman-evolver"),
+		global.AgentStateDir("expert-evolver"),
+		global.AgentMemoryDir("expert-evolver"),
+		global.AgentSessionsDir("expert-evolver"),
+		global.AgentStateDBPath("expert-evolver"),
+		global.AgentStateDir("meta-evolver"),
+		global.AgentMemoryDir("meta-evolver"),
+		global.AgentSessionsDir("meta-evolver"),
+		global.AgentStateDBPath("meta-evolver"),
 	} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("expected evolution path %s: %v", path, err)
@@ -101,19 +113,19 @@ func TestEvolutionDataFromMetaSignalUsesEvolutionScope(t *testing.T) {
 		SessionID: "agent-evolution-superman-superman-1",
 		AgentName: "meta-evolver",
 		Role:      "meta",
-		RootDir:   filepath.Join(workspace, "evolution"),
+		RootDir:   global.AgentStateDir("meta-evolver"),
 	})
 
-	if data.RootDir != filepath.Join(workspace, "evolution") {
+	if data.RootDir != global.AgentStateDir("meta-evolver") {
 		t.Fatalf("RootDir = %q", data.RootDir)
 	}
-	if data.SessionLogPath != filepath.Join(workspace, "evolution", "sessions", "agent-evolution-superman-superman-1.log") {
+	if data.SessionLogPath != filepath.Join(global.AgentSessionsDir("meta-evolver"), "agent-evolution-superman-superman-1.log") {
 		t.Fatalf("SessionLogPath = %q", data.SessionLogPath)
 	}
-	if data.L1Path != filepath.Join(workspace, "evolution", "memory", "l1.toml") {
+	if data.L1Path != filepath.Join(global.AgentMemoryDir("meta-evolver"), "l1.toml") {
 		t.Fatalf("L1Path = %q", data.L1Path)
 	}
-	if data.SOPDir != filepath.Join(workspace, "evolution", "memory", "l2") {
+	if data.SOPDir != filepath.Join(global.AgentMemoryDir("meta-evolver"), "l2") {
 		t.Fatalf("SOPDir = %q", data.SOPDir)
 	}
 	if !data.MetaEvolution || data.CultivateExperts || data.CanEditSoul || data.ExpertDir != "" || data.SoulPath != "" {
@@ -145,16 +157,16 @@ func TestEvolutionDataFromSupermanSignalUsesWorkspaceScope(t *testing.T) {
 	if data.RootDir != workspace {
 		t.Fatalf("RootDir = %q, want %q", data.RootDir, workspace)
 	}
-	if data.SessionLogPath != filepath.Join(workspace, "sessions", "s1.log") {
+	if data.SessionLogPath != filepath.Join(global.AgentSessionsDir("superman"), "s1.log") {
 		t.Fatalf("SessionLogPath = %q", data.SessionLogPath)
 	}
-	if data.L1Path != filepath.Join(workspace, "memory", "l1.toml") {
+	if data.L1Path != filepath.Join(global.AgentMemoryDir("superman"), "l1.toml") {
 		t.Fatalf("L1Path = %q", data.L1Path)
 	}
-	if data.SOPDir != filepath.Join(workspace, "memory", "l2") {
+	if data.SOPDir != filepath.Join(global.AgentMemoryDir("superman"), "l2") {
 		t.Fatalf("SOPDir = %q", data.SOPDir)
 	}
-	if data.ExpertDir != filepath.Join(workspace, "experts") || !data.CultivateExperts || !data.CanCreateExpert {
+	if data.ExpertDir != global.StateRootDir() || !data.CultivateExperts || !data.CanCreateExpert {
 		t.Fatalf("expert cultivation flags/path = dir:%q cultivate:%v create:%v", data.ExpertDir, data.CultivateExperts, data.CanCreateExpert)
 	}
 	if data.SoulPath != "" || data.CanEditSoul {
@@ -177,7 +189,7 @@ func TestEvolutionDataFromExpertSignalUsesExpertScope(t *testing.T) {
 	global.SetConfig(&config.Config{Workspace: workspace})
 	t.Cleanup(func() { global.SetConfig(nil) })
 
-	expertRoot := filepath.Join(workspace, "experts", "reviewer")
+	expertRoot := global.AgentStateDir("reviewer")
 	data := evolutionDataFromSignal(hook.EvolutionSignal{
 		SessionID: "7",
 		AgentName: "reviewer",
@@ -188,13 +200,13 @@ func TestEvolutionDataFromExpertSignalUsesExpertScope(t *testing.T) {
 	if data.RootDir != expertRoot {
 		t.Fatalf("RootDir = %q, want %q", data.RootDir, expertRoot)
 	}
-	if data.SessionLogPath != filepath.Join(expertRoot, "sessions", "7.log") {
+	if data.SessionLogPath != filepath.Join(global.AgentSessionsDir("reviewer"), "7.log") {
 		t.Fatalf("SessionLogPath = %q", data.SessionLogPath)
 	}
-	if data.L1Path != filepath.Join(expertRoot, "memory", "l1.toml") {
+	if data.L1Path != filepath.Join(global.AgentMemoryDir("reviewer"), "l1.toml") {
 		t.Fatalf("L1Path = %q", data.L1Path)
 	}
-	if data.SOPDir != filepath.Join(expertRoot, "memory", "l2") {
+	if data.SOPDir != filepath.Join(global.AgentMemoryDir("reviewer"), "l2") {
 		t.Fatalf("SOPDir = %q", data.SOPDir)
 	}
 	if data.SoulPath != filepath.Join(expertRoot, "soul.md") || !data.CanEditSoul {

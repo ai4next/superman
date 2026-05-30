@@ -55,6 +55,31 @@ func TestLoadDefaultsEnableLoopDetection(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultsBusAndExpertConfig(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("workspace: "+tmp+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Expert.MaxCount != 10 {
+		t.Fatalf("expert max count = %d, want 10", cfg.Expert.MaxCount)
+	}
+	if cfg.Bus.Path != "" {
+		t.Fatalf("bus path = %q, want empty for channel queue", cfg.Bus.Path)
+	}
+	if cfg.Bus.AuditLog != filepath.Join(tmp, "bus", "events.jsonl") {
+		t.Fatalf("bus audit log = %q", cfg.Bus.AuditLog)
+	}
+	if cfg.Bus.Queue.MaxSize != 100 {
+		t.Fatalf("bus queue defaults = %#v", cfg.Bus.Queue)
+	}
+}
+
 func TestLoadPreservesExplicitLoopDetectionDisabled(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(cfgPath, []byte("workspace: /tmp/superman-test\nsession:\n  loop_detection:\n    enabled: false\n"), 0o644); err != nil {

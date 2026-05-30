@@ -461,7 +461,7 @@ func TestWriteSessionStorageAndGC(t *testing.T) {
 	if _, err := svc.RecordFileRevision("app", "cli-user", "1", path, "patch", "old", "new", false); err != nil {
 		t.Fatal(err)
 	}
-	orphanPath := filepath.Join(cfg.Workspace, "sessions", "snapshots", "aa", "aa-orphan")
+	orphanPath := filepath.Join(global.AgentSessionsDir("superman"), "snapshots", "aa", "aa-orphan")
 	if err := os.MkdirAll(filepath.Dir(orphanPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
