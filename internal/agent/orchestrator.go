@@ -12,7 +12,7 @@ import (
 	"github.com/ai4next/superman/internal/prompt"
 )
 
-const defaultPlanExecuteMaxIterations = 6
+const defaultPlanExecuteMaxIterations = 3
 
 func newSequentialAgent(llm model.LLM, build BuildConfig) (adkagent.Agent, error) {
 	planner, err := newPlannerAgent(llm, build)

@@ -36,6 +36,43 @@ func TestMemoryBrokerFiltersAndPublishes(t *testing.T) {
 	}
 }
 
+func TestMemoryBrokerPublishWaitsForSlowSubscriber(t *testing.T) {
+	broker := NewMemoryBroker()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events, err := broker.Subscribe(ctx, EventFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < cap(events); i++ {
+		if err := broker.Publish(ctx, Event{Type: EventTaskQueued, TaskID: "t1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- broker.Publish(ctx, Event{Type: EventTaskQueued, TaskID: "t1"})
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("Publish returned before subscriber made room: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	<-events
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for blocked publish")
+	}
+	stats := broker.Stats()
+	if stats.Subscribers != 1 || stats.Delivered != uint64(cap(events)+1) {
+		t.Fatalf("stats = %#v", stats)
+	}
+}
+
 func TestAuditLoggerWritesSubscribedEvents(t *testing.T) {
 	broker := NewMemoryBroker()
 	path := filepath.Join(t.TempDir(), "events.jsonl")
