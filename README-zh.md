@@ -410,9 +410,23 @@ go build -o sm .
 
 需要 Go 1.26+。
 
+## ⭐ 社区与支持
+
+如果这个项目对你有帮助，欢迎点一个 **Star!** 🙏
+
+也欢迎加入 **Superman 体验交流社区**，一起交流、反馈、共建 👏
+
+<div align="center">
+  <table>
+    <tr>
+      <td align="center"><strong>微信群</strong><br/><img src="assets/wechat_group.jpg" alt="微信群 二维码" width="240"/></td>
+    </tr>
+  </table>
+</div>
+
 ## 📄 许可证
 
-MIT
+MIT，详见 [`LICENSE`](LICENSE)。
 
 ---
 

@@ -410,9 +410,23 @@ go build -o sm .
 
 Requires Go 1.26+.
 
+## ⭐ Community & Support
+
+If this project helped you, please consider leaving a **Star!** 🙏
+
+You're also welcome to join the **Superman Experience & Exchange Community** for discussion, feedback, and co-building 👏
+
+<div align="center">
+  <table>
+    <tr>
+      <td align="center"><strong>WeChat Group</strong><br/><img src="assets/wechat_group.jpg" alt="WeChat Group QR" width="240"/></td>
+    </tr>
+  </table>
+</div>
+
 ## 📄 License
 
-MIT
+MIT, See [`LICENSE`](LICENSE) for full text.
 
 ---
 
