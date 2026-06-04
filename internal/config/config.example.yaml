@@ -56,7 +56,7 @@ mcp:
     - name: my-server
       enabled: true
       command: npx
-      args: [-y, @modelcontextprotocol/server-filesystem, /tmp]
+      args: [-y, "@modelcontextprotocol/server-filesystem", /tmp]
       tools: []                 # empty = all tools; specify names to filter
 
 # Session management

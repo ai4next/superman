@@ -142,7 +142,7 @@ mcp:
     - name: my-server
       enabled: true
       command: npx
-      args: [-y, @modelcontextprotocol/server-filesystem, /tmp]
+      args: [-y, "@modelcontextprotocol/server-filesystem", /tmp]
       tools: []                 # 空列表 = 全部工具；也可指定工具名过滤
 
 # 会话管理
@@ -301,10 +301,10 @@ mcp:
   servers:
     - name: filesystem
       command: npx
-      args: [-y, @modelcontextprotocol/server-filesystem, /tmp]
+      args: [-y, "@modelcontextprotocol/server-filesystem", /tmp]
     - name: github
       command: npx
-      args: [-y, @modelcontextprotocol/server-github]
+      args: [-y, "@modelcontextprotocol/server-github"]
       tools: [issues, pulls]
 ```
 
