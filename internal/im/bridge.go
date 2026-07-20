@@ -29,6 +29,8 @@ type AgentBridge struct {
 	running map[string]struct{}
 }
 
+const finalResponseAuthor = "superman_executor"
+
 func NewAgentBridge(run *adkrunner.Runner, sessionService adksession.Service, cfg *config.Config, logger *slog.Logger) (*AgentBridge, error) {
 	if run == nil {
 		return nil, errors.New("im: runner is required")
@@ -85,7 +87,7 @@ func (b *AgentBridge) runAndReply(ctx context.Context, client *Client, msg *Mess
 		return err
 	}
 
-	var out strings.Builder
+	response := supermanruntime.NewFinalResponseCollector(finalResponseAuthor)
 	req := supermanruntime.RunRequest{
 		AppName:    b.Config.Session.AppName,
 		UserID:     UserID(msg),
@@ -106,7 +108,7 @@ func (b *AgentBridge) runAndReply(ctx context.Context, client *Client, msg *Mess
 		}
 		switch event.Type {
 		case bus.EventTextDelta:
-			out.WriteString(event.Text)
+			response.Collect(event)
 		case bus.EventPermissionRequested:
 			return fmt.Errorf("工具 %s 需要人工确认；当前 IM 接入暂不支持确认流程", firstNonEmpty(event.ToolName, event.ToolID))
 		case bus.EventRunFailed:
@@ -117,7 +119,7 @@ func (b *AgentBridge) runAndReply(ctx context.Context, client *Client, msg *Mess
 		}
 	}
 
-	reply := strings.TrimSpace(out.String())
+	reply := response.String()
 	if reply == "" {
 		reply = "已完成。"
 	}

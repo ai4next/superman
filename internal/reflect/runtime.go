@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
 
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
@@ -50,8 +49,7 @@ func (e executor) run(ctx context.Context, cfg *config.Config, userID, sessionID
 	}
 
 	auditLogger := bus.NewAuditLogger(global.BusEventsPath())
-	var response strings.Builder
-	var responseEventID string
+	response := runtime.NewFinalResponseCollector(e.agent.Name() + "_executor")
 	for event, evtErr := range runtime.StreamRun(ctx, r, req, nil) {
 		if err := auditLogger.Write(event); err != nil {
 			log.Printf("[%s] audit write failed: %v", logPrefix, err)
@@ -59,15 +57,9 @@ func (e executor) run(ctx context.Context, cfg *config.Config, userID, sessionID
 		if evtErr != nil {
 			return response.String(), evtErr
 		}
-		if event.Type == bus.EventTextDelta && event.Author == e.agent.Name()+"_executor" {
-			if event.EventID != "" && event.EventID != responseEventID {
-				response.Reset()
-				responseEventID = event.EventID
-			}
-			response.WriteString(event.Text)
-		}
+		response.Collect(event)
 	}
-	return strings.TrimSpace(response.String()), nil
+	return response.String(), nil
 }
 
 func (e executor) sessionService(cfg *config.Config) (adksession.Service, error) {

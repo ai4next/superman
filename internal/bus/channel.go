@@ -163,10 +163,11 @@ func (q *ChannelQueue) Fail(taskID string, failure TaskFailure) error {
 	}
 	task.UpdatedAt = now
 	var event Event
+	retry := false
 	if failure.Retryable && task.Attempt < task.MaxAttempts {
 		task.Status = TaskStatusReady
 		q.tasks[task.ID] = task
-		q.ready <- task.ID
+		retry = true
 		event = Event{Type: EventTaskRetrying, At: now, TaskID: task.ID, Error: failure.Error, Metadata: task.Payload}
 	} else {
 		task.Status = TaskStatusDead
@@ -176,8 +177,35 @@ func (q *ChannelQueue) Fail(taskID string, failure TaskFailure) error {
 	q.appendEventLocked(event)
 	broker := q.broker
 	q.mu.Unlock()
+	if retry {
+		if failure.RetryAfter > 0 {
+			go q.requeueAfter(task.ID, failure.RetryAfter)
+		} else {
+			// A full ready channel must not prevent workers from acquiring q.mu.
+			q.ready <- task.ID
+		}
+	}
 	publishTaskEvent(broker, event)
 	return nil
+}
+
+func (q *ChannelQueue) requeueAfter(taskID string, delay time.Duration) {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	<-timer.C
+
+	q.mu.Lock()
+	if q.closed {
+		q.mu.Unlock()
+		return
+	}
+	task, ok := q.tasks[taskID]
+	if !ok || task.Status != TaskStatusReady {
+		q.mu.Unlock()
+		return
+	}
+	q.mu.Unlock()
+	q.ready <- taskID
 }
 
 func (q *ChannelQueue) Task(taskID string) (Task, bool, error) {

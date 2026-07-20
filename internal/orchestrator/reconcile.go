@@ -36,6 +36,10 @@ func Reconcile(plan *Plan, queue bus.TaskQueue) (ReconcileResult, error) {
 				plan.SetState(task.ID, next)
 				result.Changed = true
 			}
+		} else {
+			clearTaskBusID(plan, task.ID)
+			plan.SetState(task.ID, TaskStatusPending)
+			result.Changed = true
 		}
 	}
 	if hasDeadTask(plan) {
@@ -73,6 +77,19 @@ func Reconcile(plan *Plan, queue bus.TaskQueue) (ReconcileResult, error) {
 		result.Changed = true
 	}
 	return result, nil
+}
+
+func clearTaskBusID(plan *Plan, taskID string) {
+	if plan == nil {
+		return
+	}
+	for i := range plan.Tasks {
+		if plan.Tasks[i].ID != taskID || plan.Tasks[i].Metadata == nil {
+			continue
+		}
+		delete(plan.Tasks[i].Metadata, "bus_task_id")
+		return
+	}
 }
 
 func taskStatusFromBus(status bus.TaskStatus) TaskStatus {

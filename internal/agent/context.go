@@ -25,9 +25,8 @@ const (
 )
 
 func instructionProvider(build BuildConfig) func(adkagent.CallbackContext, *model.LLMRequest) (string, error) {
-	builder := strings.Builder{}
 	return func(ctx adkagent.CallbackContext, req *model.LLMRequest) (string, error) {
-		defer builder.Reset()
+		var builder strings.Builder
 		builder.WriteString(build.Instruction)
 		if build.MemoryService != nil {
 			if l0Content := build.MemoryService.GetL0Content(); l0Content != "" {

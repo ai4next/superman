@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strings"
+	"strconv"
 	"time"
 
 	"google.golang.org/adk/model"
@@ -32,6 +32,7 @@ type delegateService struct {
 	registry    *expert.Registry
 	evolutionCh chan<- hook.EvolutionSignal
 	queue       bus.TaskQueue
+	controller  *orchestrator.Controller
 }
 
 func newDelegateService(llm model.LLM, registry *expert.Registry, evolutionCh ...chan<- hook.EvolutionSignal) *delegateService {
@@ -45,6 +46,9 @@ func newDelegateService(llm model.LLM, registry *expert.Registry, evolutionCh ..
 func newDelegateServiceWithQueue(llm model.LLM, registry *expert.Registry, queue bus.TaskQueue, evolutionCh ...chan<- hook.EvolutionSignal) *delegateService {
 	ds := newDelegateService(llm, registry, evolutionCh...)
 	ds.queue = queue
+	if queue != nil {
+		ds.controller = orchestrator.NewController(orchestrator.FileStore{Dir: global.PlansDir()}, queue)
+	}
 	return ds
 }
 
@@ -79,15 +83,28 @@ func (ds *delegateService) SubmitPlan(ctx context.Context, planJSON string) (too
 	if err := json.Unmarshal([]byte(planJSON), &plan); err != nil {
 		return tool.OrchestratorReceipt{}, fmt.Errorf("decode plan: %w", err)
 	}
-	reconcile, err := orchestrator.Reconcile(&plan, ds.queue)
+	if ds.controller == nil {
+		return tool.OrchestratorReceipt{}, fmt.Errorf("orchestrator controller not available")
+	}
+	reconcile, err := ds.controller.Submit(plan)
 	if err != nil {
 		return tool.OrchestratorReceipt{}, err
 	}
-	store := orchestrator.FileStore{Dir: global.PlansDir()}
-	if err := store.Save(plan); err != nil {
+	stored, err := orchestrator.FileStore{Dir: global.PlansDir()}.Load(plan.ID)
+	if err != nil {
 		return tool.OrchestratorReceipt{}, err
 	}
-	return tool.OrchestratorReceipt{PlanID: plan.ID, Status: string(plan.Status), Queued: len(reconcile.Queued)}, nil
+	return tool.OrchestratorReceipt{PlanID: stored.ID, Status: string(stored.Status), Queued: len(reconcile.Queued)}, nil
+}
+
+func (ds *delegateService) RunOrchestrator(ctx context.Context) {
+	if ds.controller == nil {
+		return
+	}
+	ds.controller.OnError = func(err error) {
+		log.Printf("[orchestrator] reconcile failed: %v", err)
+	}
+	ds.controller.Run(ctx, 0)
 }
 
 func (ds *delegateService) RunQueuedDelegates(ctx context.Context, workerID string) {
@@ -123,11 +140,14 @@ func (ds *delegateService) RunQueuedDelegates(ctx context.Context, workerID stri
 func (ds *delegateService) runQueuedDelegate(ctx context.Context, running bus.RunningTask) {
 	expertName := running.Task.Payload["expert_name"]
 	taskText := running.Task.Payload["task"]
-	result, err := ds.runDelegateSync(ctx, expertName, taskText)
+	taskCtx, cancel := delegateTaskContext(ctx, running.Task)
+	defer cancel()
+	result, err := ds.runDelegateSync(taskCtx, expertName, taskText)
 	if err != nil {
-		if failErr := ds.queue.Fail(running.Task.ID, bus.TaskFailure{Error: err.Error(), Retryable: true}); failErr != nil {
+		if failErr := ds.queue.Fail(running.Task.ID, bus.TaskFailure{Error: err.Error(), Retryable: true, RetryAfter: delegateRetryDelay(running.Task)}); failErr != nil {
 			log.Printf("[delegate] fail task %s: %v", running.Task.ID, failErr)
 		}
+		ds.reconcilePlan(running.Task.Payload["plan_id"])
 		return
 	}
 	if err := ds.queue.Ack(running.Task.ID, bus.TaskResult{
@@ -138,6 +158,39 @@ func (ds *delegateService) runQueuedDelegate(ctx context.Context, running bus.Ru
 	}); err != nil {
 		log.Printf("[delegate] ack task %s: %v", running.Task.ID, err)
 	}
+	ds.reconcilePlan(running.Task.Payload["plan_id"])
+}
+
+func (ds *delegateService) reconcilePlan(planID string) {
+	if planID == "" || ds.controller == nil {
+		return
+	}
+	if _, err := ds.controller.ReconcilePlan(planID); err != nil {
+		log.Printf("[orchestrator] reconcile plan %s: %v", planID, err)
+	}
+}
+
+func delegateTaskContext(parent context.Context, task bus.Task) (context.Context, context.CancelFunc) {
+	seconds, err := strconv.Atoi(task.Payload["timeout_seconds"])
+	if err != nil || seconds <= 0 {
+		return parent, func() {}
+	}
+	return context.WithTimeout(parent, time.Duration(seconds)*time.Second)
+}
+
+func delegateRetryDelay(task bus.Task) time.Duration {
+	seconds, err := strconv.Atoi(task.Payload["retry_backoff_seconds"])
+	if err != nil || seconds <= 0 {
+		return 0
+	}
+	delay := time.Duration(seconds) * time.Second
+	for attempt := 1; attempt < task.Attempt && delay < 24*time.Hour; attempt++ {
+		delay *= 2
+	}
+	if delay > 24*time.Hour {
+		return 24 * time.Hour
+	}
+	return delay
 }
 
 func waitForDelegateWork(ctx context.Context, ticker *time.Ticker) {
@@ -197,8 +250,7 @@ func (ds *delegateService) runDelegateSync(ctx context.Context, specName string,
 		return "", err
 	}
 	auditLogger := bus.NewAuditLogger(global.BusEventsPath())
-	var response strings.Builder
-	var responseEventID string
+	response := supermanruntime.NewFinalResponseCollector(a.Name() + "_executor")
 	for event, evtErr := range supermanruntime.StreamRun(ctx, r, req, nil) {
 		if err := auditLogger.Write(event); err != nil {
 			log.Printf("[expert] audit write failed: %v", err)
@@ -206,15 +258,9 @@ func (ds *delegateService) runDelegateSync(ctx context.Context, specName string,
 		if evtErr != nil {
 			return "", evtErr
 		}
-		if event.Type == bus.EventTextDelta && event.Author == a.Name()+"_executor" {
-			if event.EventID != "" && event.EventID != responseEventID {
-				response.Reset()
-				responseEventID = event.EventID
-			}
-			response.WriteString(event.Text)
-		}
+		response.Collect(event)
 	}
-	result := strings.TrimSpace(response.String())
+	result := response.String()
 	if result == "" {
 		return "", fmt.Errorf("delegate returned an empty response")
 	}

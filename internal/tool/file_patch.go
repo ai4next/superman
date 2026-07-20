@@ -3,7 +3,6 @@ package tool
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"google.golang.org/adk/tool"
@@ -17,7 +16,7 @@ type filePatchInput struct {
 }
 
 type filePatchOutput struct {
-	Applied  bool   `json:"applied"`
+	Applied bool `json:"applied"`
 }
 
 func newPatchTool(deps Dependencies) tool.Tool {
@@ -32,7 +31,7 @@ func newPatchTool(deps Dependencies) tool.Tool {
 }
 
 func patchFile(tctx tool.Context, deps Dependencies, input filePatchInput) (filePatchOutput, error) {
-	abs, err := filepath.Abs(input.Path)
+	abs, err := workspacePath(deps.Config, input.Path, false)
 	if err != nil {
 		return filePatchOutput{}, fmt.Errorf("invalid path: %w", err)
 	}
@@ -58,7 +57,7 @@ func patchFile(tctx tool.Context, deps Dependencies, input filePatchInput) (file
 	}
 
 	out := filePatchOutput{
-		Applied:  true,
+		Applied: true,
 	}
 	recordFileRevision(tctx, abs, "patch", content, newContent, false)
 	return out, nil

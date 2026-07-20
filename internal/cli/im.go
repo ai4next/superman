@@ -192,6 +192,7 @@ func loadIMExperts(ctx context.Context, llm adkmodel.LLM, evolutionCh chan<- hoo
 	}
 	delegateService := newDelegateServiceWithQueue(llm, registry, delegateQueue, evolutionCh)
 	go delegateService.RunQueuedDelegates(ctx, "delegate-worker:im")
+	go delegateService.RunOrchestrator(ctx)
 	log.Printf("[expert] loaded %d experts", len(registry.List()))
 	return registry, delegateService, func() { _ = delegateQueue.Close() }, nil
 }

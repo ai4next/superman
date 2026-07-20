@@ -85,7 +85,7 @@ func DescribeConfiguredToolsets(cfg *config.Config) []ToolsetDescriptor {
 			Kind:                 "mcp",
 			Source:               source,
 			Tools:                append([]string(nil), server.Tools...),
-			RequiresConfirmation: false,
+			RequiresConfirmation: server.RequiresConfirmation,
 		})
 	}
 	return out
@@ -185,7 +185,7 @@ func buildMCPToolsets(cfg *config.Config) []adktool.Toolset {
 				Command: exec.Command(server.Command, server.Args...),
 			},
 			ToolFilter:                  mcpToolFilter(server.Tools),
-			RequireConfirmation:         false,
+			RequireConfirmation:         server.RequiresConfirmation,
 			RequireConfirmationProvider: nil,
 		})
 		if err != nil {

@@ -16,7 +16,7 @@ type fileWriteInput struct {
 }
 
 type fileWriteOutput struct {
-	Bytes    int    `json:"bytes_written"`
+	Bytes int `json:"bytes_written"`
 }
 
 func newWriteTool(deps Dependencies) tool.Tool {
@@ -31,7 +31,7 @@ func newWriteTool(deps Dependencies) tool.Tool {
 }
 
 func writeFile(tctx tool.Context, deps Dependencies, input fileWriteInput) (fileWriteOutput, error) {
-	abs, err := filepath.Abs(input.Path)
+	abs, err := workspacePath(deps.Config, input.Path, true)
 	if err != nil {
 		return fileWriteOutput{}, fmt.Errorf("invalid path: %w", err)
 	}
@@ -80,7 +80,7 @@ func writeFile(tctx tool.Context, deps Dependencies, input fileWriteInput) (file
 	}
 
 	out := fileWriteOutput{
-		Bytes:    n,
+		Bytes: n,
 	}
 	recordFileRevision(tctx, abs, mode, before, after, beforeMissing)
 	return out, nil

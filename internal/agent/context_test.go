@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	supermansession "github.com/ai4next/superman/internal/session"
@@ -22,6 +24,32 @@ func TestInstructionProviderDoesNotIncludeSessionContext(t *testing.T) {
 	}
 	if strings.Contains(got, "Session Context") {
 		t.Fatalf("instruction contains session context: %q", got)
+	}
+}
+
+func TestInstructionProviderIsSafeForConcurrentCalls(t *testing.T) {
+	provider := instructionProvider(BuildConfig{Instruction: "base instruction"})
+	const calls = 100
+	errs := make(chan error, calls)
+	var wg sync.WaitGroup
+	for range calls {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			got, err := provider(nil, nil)
+			if err != nil {
+				errs <- err
+				return
+			}
+			if got != "base instruction" {
+				errs <- fmt.Errorf("instruction = %q", got)
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
 	}
 }
 

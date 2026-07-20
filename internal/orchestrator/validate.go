@@ -15,6 +15,12 @@ func ValidatePlan(plan Plan) error {
 	if len(plan.Tasks) == 0 {
 		return fmt.Errorf("plan must contain at least one task")
 	}
+	if plan.Constraints.MaxParallel < 0 {
+		return fmt.Errorf("max_parallel must not be negative")
+	}
+	if plan.Constraints.TimeoutSeconds < 0 || plan.Constraints.TimeoutSeconds > 86400 {
+		return fmt.Errorf("timeout_seconds must be between 0 and 86400")
+	}
 	tasks := make(map[string]TaskNode, len(plan.Tasks))
 	for _, task := range plan.Tasks {
 		if strings.TrimSpace(task.ID) == "" {
@@ -28,6 +34,12 @@ func ValidatePlan(plan Plan) error {
 		}
 		if strings.TrimSpace(task.Input.Prompt) == "" {
 			return fmt.Errorf("task %q input prompt is required", task.ID)
+		}
+		if task.Retry.MaxAttempts < 0 {
+			return fmt.Errorf("task %q max_attempts must not be negative", task.ID)
+		}
+		if task.Retry.BackoffSeconds < 0 || task.Retry.BackoffSeconds > 86400 {
+			return fmt.Errorf("task %q backoff_seconds must be between 0 and 86400", task.ID)
 		}
 		tasks[task.ID] = task
 	}

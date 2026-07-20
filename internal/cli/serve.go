@@ -74,6 +74,7 @@ func RunServe(cmd *cobra.Command, args []string) error {
 	}
 	delegateService := newDelegateServiceWithQueue(llm, expertRegistry, delegateQueue, evolutionCh)
 	go delegateService.RunQueuedDelegates(ctx, "delegate-worker:tui")
+	go delegateService.RunOrchestrator(ctx)
 	delegateRunner = delegateService
 	log.Printf("[expert] loaded %d experts", len(expertRegistry.List()))
 

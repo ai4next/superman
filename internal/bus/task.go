@@ -58,9 +58,10 @@ type TaskResult struct {
 }
 
 type TaskFailure struct {
-	Error      string    `json:"error"`
-	Retryable  bool      `json:"retryable"`
-	OccurredAt time.Time `json:"occurred_at"`
+	Error      string        `json:"error"`
+	Retryable  bool          `json:"retryable"`
+	RetryAfter time.Duration `json:"-"`
+	OccurredAt time.Time     `json:"occurred_at"`
 }
 
 type SweepResult struct {

@@ -3,7 +3,6 @@ package tool
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"google.golang.org/adk/tool"
@@ -36,7 +35,7 @@ func newReadTool(deps Dependencies) tool.Tool {
 }
 
 func readFile(tctx tool.Context, deps Dependencies, input fileReadInput) (fileReadOutput, error) {
-	abs, err := filepath.Abs(input.Path)
+	abs, err := workspacePath(deps.Config, input.Path, false)
 	if err != nil {
 		return fileReadOutput{}, fmt.Errorf("invalid path: %w", err)
 	}
