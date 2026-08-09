@@ -22,6 +22,37 @@ func TestLoadDefaultsEnableSkills(t *testing.T) {
 	}
 }
 
+func TestLoadExecOutputLimit(t *testing.T) {
+	t.Run("default", func(t *testing.T) {
+		cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(cfgPath, []byte("workspace: /tmp/superman-test\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(cfgPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Tools.Exec.MaxOutputSize != 1_048_576 {
+			t.Fatalf("max output size = %d, want 1048576", cfg.Tools.Exec.MaxOutputSize)
+		}
+	})
+
+	t.Run("configured", func(t *testing.T) {
+		cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+		data := []byte("workspace: /tmp/superman-test\ntools:\n  exec:\n    max_output_size: 2048\n")
+		if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(cfgPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Tools.Exec.MaxOutputSize != 2048 {
+			t.Fatalf("max output size = %d, want 2048", cfg.Tools.Exec.MaxOutputSize)
+		}
+	})
+}
+
 func TestLoadPreservesExplicitSkillsDisabled(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(cfgPath, []byte("workspace: /tmp/superman-test\nskills:\n  enabled: false\n"), 0o644); err != nil {
@@ -203,4 +234,68 @@ func configHeaderValue(headers map[string]string, key string) string {
 		}
 	}
 	return ""
+}
+
+func TestLoadRejectsInvalidSafetyLimits(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{
+			name: "exec timeout",
+			yaml: "tools:\n  exec:\n    timeout: -1s\n",
+			want: "tools.exec.timeout",
+		},
+		{
+			name: "exec output",
+			yaml: "tools:\n  exec:\n    max_output_size: -1\n",
+			want: "tools.exec.max_output_size",
+		},
+		{
+			name: "file read",
+			yaml: "tools:\n  read:\n    max_size: -1\n",
+			want: "tools.read.max_size",
+		},
+		{
+			name: "loop window",
+			yaml: "session:\n  loop_detection:\n    enabled: true\n    window_size: 1\n",
+			want: "session.loop_detection.window_size",
+		},
+		{
+			name: "enabled MCP",
+			yaml: "mcp:\n  servers:\n    - name: broken\n      enabled: true\n",
+			want: "mcp.servers[0].command",
+		},
+		{
+			name: "enabled IM platform",
+			yaml: "im:\n  platforms:\n    - enabled: true\n",
+			want: "im.platforms[0].name",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(cfgPath, []byte(tc.yaml), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Load(cfgPath)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Load() error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestValidateReportsAllInvalidFields(t *testing.T) {
+	err := Validate(&Config{})
+	if err == nil {
+		t.Fatal("Validate() error = nil")
+	}
+	for _, want := range []string{"workspace", "model.provider", "tools.exec.timeout", "session.max_turns"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Validate() error = %q, want %q", err, want)
+		}
+	}
 }

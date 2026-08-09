@@ -59,6 +59,9 @@ func Load(configPath string) (*Config, error) {
 
 	applyDefaults(&cfg, skillsEnabledSet, loopDetectionEnabledSet, memorySearchEnabledSet, memoryMailboxEnabledSet)
 	normalizePaths(&cfg)
+	if err := Validate(&cfg); err != nil {
+		return nil, fmt.Errorf("validate config: %w", err)
+	}
 	return &cfg, nil
 }
 
@@ -152,6 +155,9 @@ func applyDefaults(cfg *Config, skillsEnabledSet bool, loopDetectionEnabledSet b
 	}
 	if cfg.Tools.Exec.Timeout == 0 {
 		cfg.Tools.Exec.Timeout = Duration(30 * time.Second)
+	}
+	if cfg.Tools.Exec.MaxOutputSize == 0 {
+		cfg.Tools.Exec.MaxOutputSize = 1_048_576 // 1MB per stdout/stderr stream
 	}
 	if cfg.Tools.Read.MaxSize == 0 {
 		cfg.Tools.Read.MaxSize = 10_485_760 // 10MB

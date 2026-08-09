@@ -59,8 +59,8 @@ VERSION=v0.0.1 INSTALL_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://raw.gi
 - **内建工具** — 自动适配操作系统的命令执行、文件读写/补丁、用户交互、记忆搜索、专家委托
 - **MCP Server 集成** — 通过配置接入任意 MCP 兼容工具服务（stdin/stdout transport）
 - **即时通信软件接入** — 以常驻 server 方式接入 Telegram、飞书/Lark、企业微信、微信个人号、QQ、钉钉、Slack、Discord、LINE、微博等平台
-- **持久会话** — SQLite 支撑的 session/message 存储，配套精简 `U/A/T/O` 进化日志，支持自动压缩、文件 revision tracking、session 导入导出
-- **运行时审计** — 工具调用、文本增量、错误、进化等事件流式写入可查询 JSONL audit log
+- **持久会话** — SQLite 支撑的 session/message 存储，配套精简 `U/A/T/O` 进化日志，支持增量压缩、文件 revision tracking、session 导入导出
+- **运行时审计** — 工具调用、文本增量、错误、进化等事件流式写入权限收紧且支持大型工具结果的 JSONL audit log
 - **进程内任务队列** — 专家与编排任务使用每个 Superman 进程内的 Go channel 队列，本机同时启动多个 Superman 时不会争抢共享队列数据库
 - **扁平文件记忆** — 全局事实（L1）和 SOP 文件（L2）直接存储在 workspace 中
 - **Plan-Execute Agent 循环** — 每个 Agent 都按 `planner -> loop(executor -> replanner)` 组装，先规划，再按步骤执行，并在完成或达到迭代上限前持续复盘调整
@@ -120,6 +120,7 @@ tools:
   exec:
     enabled: true
     timeout: 30s
+    max_output_size: 1048576 # stdout/stderr 每个流的上限
 
 expert:
   max_count: 10
@@ -161,6 +162,8 @@ plugins:
 `model.headers` 是可选配置，会随每次模型请求一起发送，适合接入需要自定义请求头的 OpenAI-compatible 网关。
 
 环境变量可以覆盖配置：`SUPERMAN_MODEL_PROVIDER=openai`、`SUPERMAN_MODEL_API_KEY=sk-...` 等。
+
+系统会在创建运行目录或模型客户端前校验配置。非正数的安全限额、缺少命令的已启用 MCP Server，以及缺少名称的已启用 IM 适配器都会携带准确配置路径快速报错。
 
 `bus.queue` 是进程内队列，只用于当前 Superman 进程里的本地异步 delegate / orchestrator 工作，不持久化，也不在多个同时运行的 Superman 进程之间共享。`bus.audit_log` 是持久化 JSONL 事件审计镜像。
 

@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+const maxAuditEventSize = 64 * 1024 * 1024
+
 type AuditLogger struct {
 	mu   sync.Mutex
 	path string
@@ -34,14 +36,17 @@ func (l *AuditLogger) Write(event Event) error {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if err := os.MkdirAll(filepath.Dir(l.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(l.path), 0o700); err != nil {
 		return fmt.Errorf("create audit dir: %w", err)
 	}
-	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("open audit log: %w", err)
 	}
 	defer f.Close()
+	if err := f.Chmod(0o600); err != nil {
+		return fmt.Errorf("secure audit log: %w", err)
+	}
 	if _, err := f.Write(append(data, '\n')); err != nil {
 		return fmt.Errorf("write audit log: %w", err)
 	}
@@ -104,7 +109,10 @@ func DecodeAuditEvents(r io.Reader, filter AuditFilter) ([]Event, error) {
 		typeFilter[typ] = struct{}{}
 	}
 	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 64*1024), maxAuditEventSize)
 	var events []Event
+	next := 0
+	wrapped := false
 	line := 0
 	for scanner.Scan() {
 		line++
@@ -130,13 +138,22 @@ func DecodeAuditEvents(r io.Reader, filter AuditFilter) ([]Event, error) {
 				continue
 			}
 		}
-		events = append(events, event)
+		if filter.Limit <= 0 || len(events) < filter.Limit {
+			events = append(events, event)
+			continue
+		}
+		events[next] = event
+		next = (next + 1) % filter.Limit
+		wrapped = true
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("scan audit log: %w", err)
 	}
-	if filter.Limit > 0 && len(events) > filter.Limit {
-		events = events[len(events)-filter.Limit:]
+	if wrapped {
+		ordered := make([]Event, 0, len(events))
+		ordered = append(ordered, events[next:]...)
+		ordered = append(ordered, events[:next]...)
+		events = ordered
 	}
 	return events, nil
 }

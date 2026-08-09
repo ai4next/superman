@@ -31,9 +31,28 @@ func newPatchTool(deps Dependencies) tool.Tool {
 }
 
 func patchFile(tctx tool.Context, deps Dependencies, input filePatchInput) (filePatchOutput, error) {
+	if tctx != nil {
+		if err := tctx.Err(); err != nil {
+			return filePatchOutput{}, err
+		}
+	}
+	if input.OldString == "" {
+		return filePatchOutput{}, fmt.Errorf("old_string is required")
+	}
 	abs, err := workspacePath(deps.Config, input.Path, false)
 	if err != nil {
 		return filePatchOutput{}, fmt.Errorf("invalid path: %w", err)
+	}
+
+	info, err := os.Stat(abs)
+	if err != nil {
+		return filePatchOutput{}, fmt.Errorf("file not found: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return filePatchOutput{}, fmt.Errorf("path is not a regular file")
+	}
+	if info.Size() > deps.Config.Tools.Read.MaxSize {
+		return filePatchOutput{}, fmt.Errorf("file too large: %d bytes (max %d)", info.Size(), deps.Config.Tools.Read.MaxSize)
 	}
 
 	data, err := os.ReadFile(abs)
@@ -52,6 +71,14 @@ func patchFile(tctx tool.Context, deps Dependencies, input filePatchInput) (file
 	}
 
 	newContent := strings.Replace(content, input.OldString, input.NewString, 1)
+	if int64(len(newContent)) > deps.Config.Tools.Write.MaxSize {
+		return filePatchOutput{}, fmt.Errorf("patched file too large: %d bytes (max %d)", len(newContent), deps.Config.Tools.Write.MaxSize)
+	}
+	if tctx != nil {
+		if err := tctx.Err(); err != nil {
+			return filePatchOutput{}, err
+		}
+	}
 	if err := os.WriteFile(abs, []byte(newContent), 0644); err != nil {
 		return filePatchOutput{}, fmt.Errorf("write failed: %w", err)
 	}

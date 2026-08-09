@@ -72,3 +72,73 @@ func TestFileToolsRejectSymlinkEscapes(t *testing.T) {
 		t.Fatalf("write error = %v", err)
 	}
 }
+
+func TestWriteFileRejectsUnknownModeWithoutChangingFile(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, "notes.txt")
+	if err := os.WriteFile(path, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deps := workspaceTestDeps(workspace)
+
+	_, err := writeFile(nil, deps, fileWriteInput{Path: "notes.txt", Content: "replacement", Mode: "replace"})
+	if err == nil || !strings.Contains(err.Error(), "unsupported write mode") {
+		t.Fatalf("write error = %v", err)
+	}
+	data, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(data) != "original" {
+		t.Fatalf("file content = %q, want original", data)
+	}
+}
+
+func TestWriteFileEnforcesFinalAppendSize(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, "notes.txt")
+	if err := os.WriteFile(path, []byte("1234"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deps := workspaceTestDeps(workspace)
+	deps.Config.Tools.Write.MaxSize = 5
+
+	_, err := writeFile(nil, deps, fileWriteInput{Path: "notes.txt", Content: "56", Mode: "append"})
+	if err == nil || !strings.Contains(err.Error(), "appended file too large") {
+		t.Fatalf("write error = %v", err)
+	}
+	data, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(data) != "1234" {
+		t.Fatalf("file content = %q, want unchanged", data)
+	}
+}
+
+func TestPatchFileEnforcesReadAndWriteLimits(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, "notes.txt")
+	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deps := workspaceTestDeps(workspace)
+
+	deps.Config.Tools.Read.MaxSize = 4
+	if _, err := patchFile(nil, deps, filePatchInput{Path: "notes.txt", OldString: "hello", NewString: "hi"}); err == nil || !strings.Contains(err.Error(), "file too large") {
+		t.Fatalf("read limit error = %v", err)
+	}
+
+	deps.Config.Tools.Read.MaxSize = 10
+	deps.Config.Tools.Write.MaxSize = 5
+	if _, err := patchFile(nil, deps, filePatchInput{Path: "notes.txt", OldString: "hello", NewString: "too large"}); err == nil || !strings.Contains(err.Error(), "patched file too large") {
+		t.Fatalf("write limit error = %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "hello" {
+		t.Fatalf("file content = %q, want unchanged", data)
+	}
+}

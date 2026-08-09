@@ -141,3 +141,22 @@ func TestRegisterAllDoesNotIncludeMailboxMarkForEvolver(t *testing.T) {
 		t.Fatalf("tool %q should not be registered", "memory_mailbox_mark")
 	}
 }
+
+func TestRegisterAllDoesNotMutateSharedConfig(t *testing.T) {
+	cfg := &config.Config{
+		Tools:  config.ToolsConfig{Exec: config.ExecConfig{Enabled: true}},
+		Memory: config.MemoryConfig{Search: config.MemorySearchConfig{Enabled: true}},
+	}
+
+	RegisterAll(Dependencies{Config: cfg})
+
+	if cfg.Tools.Exec.Timeout != 0 || cfg.Tools.Exec.MaxOutputSize != 0 {
+		t.Fatalf("shared exec config mutated: %#v", cfg.Tools.Exec)
+	}
+	if cfg.Tools.Read.MaxSize != 0 || cfg.Tools.Write.MaxSize != 0 {
+		t.Fatalf("shared file config mutated: read=%#v write=%#v", cfg.Tools.Read, cfg.Tools.Write)
+	}
+	if cfg.Memory.Search.MaxResults != 0 || cfg.Memory.Search.FTSEnabled || cfg.Memory.Search.ScanEnabled {
+		t.Fatalf("shared memory config mutated: %#v", cfg.Memory.Search)
+	}
+}

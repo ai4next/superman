@@ -1,9 +1,12 @@
 package tool
 
 import (
+	"context"
+	"errors"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ai4next/superman/internal/config"
 )
@@ -28,9 +31,66 @@ func TestExecToolUsesOSShell(t *testing.T) {
 }
 
 func TestRunExecRequiresCommand(t *testing.T) {
-	_, err := runExec(Dependencies{Config: &config.Config{}}, execInput{})
+	_, err := runExec(t.Context(), Dependencies{Config: &config.Config{}}, execInput{})
 	if err == nil || !strings.Contains(err.Error(), "command is required") {
 		t.Fatalf("err = %v, want command required", err)
+	}
+}
+
+func TestRunExecHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	_, err := runExec(ctx, Dependencies{Config: &config.Config{}}, execInput{Command: "echo ignored"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+}
+
+func TestRunExecReportsTimeout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sleep command is Unix-specific")
+	}
+	deps := Dependencies{Config: &config.Config{Tools: config.ToolsConfig{
+		Exec: config.ExecConfig{Timeout: config.Duration(10 * time.Millisecond)},
+	}}}
+
+	_, err := runExec(t.Context(), deps, execInput{Command: "sleep 1"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want context.DeadlineExceeded", err)
+	}
+}
+
+func TestRunExecTruncatesOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("printf command is Unix-specific")
+	}
+	deps := Dependencies{Config: &config.Config{Tools: config.ToolsConfig{
+		Exec: config.ExecConfig{
+			Timeout:       config.Duration(time.Second),
+			MaxOutputSize: 5,
+		},
+	}}}
+
+	out, err := runExec(t.Context(), deps, execInput{Command: "printf 123456789"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stdout != "12345" || !out.StdoutTruncated {
+		t.Fatalf("stdout = %q, truncated = %v", out.Stdout, out.StdoutTruncated)
+	}
+}
+
+func TestLimitedBufferDrainsAfterLimit(t *testing.T) {
+	buf := newLimitedBuffer(3)
+	if n, err := buf.Write([]byte("abcdef")); err != nil || n != 6 {
+		t.Fatalf("first write = (%d, %v), want (6, nil)", n, err)
+	}
+	if n, err := buf.Write([]byte("gh")); err != nil || n != 2 {
+		t.Fatalf("second write = (%d, %v), want (2, nil)", n, err)
+	}
+	if got := buf.String(); got != "abc" || !buf.Truncated() {
+		t.Fatalf("buffer = %q, truncated = %v", got, buf.Truncated())
 	}
 }
 

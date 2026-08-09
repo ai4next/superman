@@ -23,7 +23,7 @@ type memorySearchOutput struct {
 
 func newMemorySearchTool(deps Dependencies) tool.Tool {
 	handler := func(tctx tool.Context, input memorySearchInput) (memorySearchOutput, error) {
-		return runMemorySearch(context.Background(), deps, input)
+		return runMemorySearch(tctx, deps, input)
 	}
 	t, _ := functiontool.New(functiontool.Config{
 		Name:        "memory_search",
@@ -33,7 +33,9 @@ func newMemorySearchTool(deps Dependencies) tool.Tool {
 }
 
 func runMemorySearch(ctx context.Context, deps Dependencies, input memorySearchInput) (memorySearchOutput, error) {
-	_ = ctx
+	if err := ctx.Err(); err != nil {
+		return memorySearchOutput{}, err
+	}
 	svc := memory.NewSearchService(deps.Config)
 	results, err := svc.Search(memory.SearchOptions{
 		Query:  input.Query,

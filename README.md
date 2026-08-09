@@ -59,8 +59,8 @@ VERSION=v0.0.1 INSTALL_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://raw.gi
 - **Built-in tools** — OS-aware command execution, file read/write/patch, user interaction, memory search, expert delegation
 - **MCP server integration** — plug in any MCP-compatible tool server via config (stdin/stdout transport)
 - **Instant-messaging integration** — run a long-lived server that connects Superman to Telegram, Feishu/Lark, WeCom, Weixin, QQ, DingTalk, Slack, Discord, LINE, and Weibo
-- **Persistent session** — SQLite-backed session/message store with compact `U/A/T/O` evolution logs, automatic compaction, file revision tracking, and session export/import
-- **Runtime audit** — Events (tool calls, text delta, errors, evolutions) streamed to a queryable JSONL audit log
+- **Persistent session** — SQLite-backed session/message store with compact `U/A/T/O` evolution logs, incremental compaction, file revision tracking, and session export/import
+- **Runtime audit** — Events (tool calls, text delta, errors, evolutions) streamed to a permission-restricted JSONL log that supports large tool results
 - **In-process task queue** — expert and orchestration tasks use a Go channel queue inside each Superman process, so multiple local Superman instances do not contend for a shared queue database
 - **Flat-file memory** — global facts (L1) and SOP files (L2) stored directly in the workspace
 - **Plan-Execute agent loop** — every agent is assembled as `planner -> loop(executor -> replanner)`, so requests are planned, executed step by step, and replanned until completion or the iteration limit
@@ -120,6 +120,7 @@ tools:
   exec:
     enabled: true
     timeout: 30s
+    max_output_size: 1048576 # per stdout/stderr stream
 
 expert:
   max_count: 10
@@ -161,6 +162,8 @@ plugins:
 `model.headers` is optional and is forwarded with every model request, which is useful for custom OpenAI-compatible gateways.
 
 Environment variables override config: `SUPERMAN_MODEL_PROVIDER=openai`, `SUPERMAN_MODEL_API_KEY=sk-...`, etc.
+
+Configuration is validated before runtime directories or model clients are created. Invalid non-positive limits, enabled MCP servers without a command, and enabled IM adapters without a name fail fast with the exact config path.
 
 `bus.queue` is intentionally in-process. It is used for local async delegate/orchestration work inside the current Superman process and is not persisted or shared across simultaneously running Superman processes. `bus.audit_log` is the durable JSONL event mirror.
 

@@ -79,6 +79,9 @@ func (s *Service) sessionLogPath(sessionID string) string {
 }
 
 func (s *Service) Create(ctx context.Context, req *adksession.CreateRequest) (*adksession.CreateResponse, error) {
+	if err := requestContextError(ctx); err != nil {
+		return nil, err
+	}
 	if req.AppName == "" || req.UserID == "" {
 		return nil, fmt.Errorf("app_name and user_id are required")
 	}
@@ -120,6 +123,9 @@ func (s *Service) Create(ctx context.Context, req *adksession.CreateRequest) (*a
 }
 
 func (s *Service) Get(ctx context.Context, req *adksession.GetRequest) (*adksession.GetResponse, error) {
+	if err := requestContextError(ctx); err != nil {
+		return nil, err
+	}
 	sessionID, err := normalizeSessionID(req.SessionID)
 	if err != nil {
 		return nil, err
@@ -139,6 +145,9 @@ func (s *Service) Get(ctx context.Context, req *adksession.GetRequest) (*adksess
 }
 
 func (s *Service) List(ctx context.Context, req *adksession.ListRequest) (*adksession.ListResponse, error) {
+	if err := requestContextError(ctx); err != nil {
+		return nil, err
+	}
 	if req.AppName == "" {
 		return nil, fmt.Errorf("app_name is required")
 	}
@@ -163,6 +172,9 @@ func (s *Service) List(ctx context.Context, req *adksession.ListRequest) (*adkse
 }
 
 func (s *Service) Delete(ctx context.Context, req *adksession.DeleteRequest) error {
+	if err := requestContextError(ctx); err != nil {
+		return err
+	}
 	sessionID, err := normalizeSessionID(req.SessionID)
 	if err != nil {
 		return err
@@ -191,6 +203,9 @@ func (s *Service) Delete(ctx context.Context, req *adksession.DeleteRequest) err
 }
 
 func (s *Service) AppendEvent(ctx context.Context, curSession adksession.Session, event *adksession.Event) error {
+	if err := requestContextError(ctx); err != nil {
+		return err
+	}
 	if curSession == nil {
 		return fmt.Errorf("session is nil")
 	}
@@ -238,6 +253,13 @@ func (s *Service) AppendEvent(ctx context.Context, curSession adksession.Session
 		s.publishLocked(UpdatedEvent, msg)
 	}
 	return nil
+}
+
+func requestContextError(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	return ctx.Err()
 }
 
 func (s *Service) Messages(appName, userID, sessionID string) ([]Message, error) {
@@ -1413,20 +1435,27 @@ func ProjectEvent(sessionID string, event *adksession.Event) []Message {
 		return nil
 	}
 	var out []Message
+	summaryID, _ := event.Actions.StateDelta[sessionStateSummaryMessageID].(string)
+	summaryEvent := event.Actions.SkipSummarization && strings.TrimSpace(summaryID) != "" &&
+		(summaryID == event.ID || summaryID == event.InvocationID)
 	role := MessageAssistant
 	if event.Author == "user" {
 		role = MessageUser
 	}
 	for _, part := range event.Content.Parts {
 		if part.Text != "" {
+			messageID := uuid.NewString()
+			if summaryEvent {
+				messageID = summaryID
+			}
 			out = append(out, Message{
-				ID:           uuid.NewString(),
+				ID:           messageID,
 				SessionID:    sessionID,
 				EventID:      event.ID,
 				InvocationID: event.InvocationID,
 				Role:         role,
 				Content:      part.Text,
-				Summary:      event.Actions.SkipSummarization,
+				Summary:      summaryEvent,
 				CreatedAt:    event.Timestamp,
 				UpdatedAt:    event.Timestamp,
 			})

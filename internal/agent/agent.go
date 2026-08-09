@@ -133,7 +133,7 @@ func NewFromConfig(llm model.LLM, cfg *config.Config, build BuildConfig) (adkage
 func buildToolsets(ctx context.Context, cfg *config.Config) []adktool.Toolset {
 	var toolsets []adktool.Toolset
 	toolsets = append(toolsets, buildSkillToolsets(ctx, cfg)...)
-	toolsets = append(toolsets, buildMCPToolsets(cfg)...)
+	toolsets = append(toolsets, buildMCPToolsets(ctx, cfg)...)
 	return toolsets
 }
 
@@ -171,7 +171,7 @@ func configuredSkillPaths(cfg *config.Config) []string {
 	return []string{filepath.Join(cfg.Workspace, "skills")}
 }
 
-func buildMCPToolsets(cfg *config.Config) []adktool.Toolset {
+func buildMCPToolsets(ctx context.Context, cfg *config.Config) []adktool.Toolset {
 	if cfg == nil {
 		return nil
 	}
@@ -182,7 +182,7 @@ func buildMCPToolsets(cfg *config.Config) []adktool.Toolset {
 		}
 		ts, err := mcptoolset.New(mcptoolset.Config{
 			Transport: &mcp.CommandTransport{
-				Command: exec.Command(server.Command, server.Args...),
+				Command: exec.CommandContext(ctx, server.Command, server.Args...),
 			},
 			ToolFilter:                  mcpToolFilter(server.Tools),
 			RequireConfirmation:         server.RequiresConfirmation,

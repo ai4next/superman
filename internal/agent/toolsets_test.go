@@ -68,7 +68,7 @@ func TestBuildMCPToolsets(t *testing.T) {
 		},
 	}
 
-	got := buildMCPToolsets(cfg)
+	got := buildMCPToolsets(t.Context(), cfg)
 	if len(got) != 1 {
 		t.Fatalf("buildMCPToolsets returned %d toolsets, want 1", len(got))
 	}
@@ -86,7 +86,7 @@ func TestBuildMCPToolsetsUsesCommandAsFallbackName(t *testing.T) {
 		},
 	}
 
-	got := buildMCPToolsets(cfg)
+	got := buildMCPToolsets(t.Context(), cfg)
 	if len(got) != 1 {
 		t.Fatalf("buildMCPToolsets returned %d toolsets, want 1", len(got))
 	}

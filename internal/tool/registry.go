@@ -1,6 +1,8 @@
 package tool
 
 import (
+	"time"
+
 	"github.com/ai4next/superman/internal/config"
 	"github.com/ai4next/superman/internal/expert"
 	"google.golang.org/adk/tool"
@@ -26,6 +28,11 @@ type Dependencies struct {
 func RegisterAll(deps Dependencies) []tool.Tool {
 	if deps.Config == nil {
 		deps.Config = &config.Config{}
+	} else {
+		// Tool registration happens for every model request. Apply defaults to a
+		// request-local copy so concurrent sessions never mutate shared config.
+		cfg := *deps.Config
+		deps.Config = &cfg
 	}
 	applyToolDefaults(deps.Config)
 	var tools []tool.Tool
@@ -59,6 +66,18 @@ func RegisterAll(deps Dependencies) []tool.Tool {
 }
 
 func applyToolDefaults(cfg *config.Config) {
+	if cfg.Tools.Exec.Timeout <= 0 {
+		cfg.Tools.Exec.Timeout = config.Duration(30 * time.Second)
+	}
+	if cfg.Tools.Exec.MaxOutputSize <= 0 {
+		cfg.Tools.Exec.MaxOutputSize = 1_048_576
+	}
+	if cfg.Tools.Read.MaxSize <= 0 {
+		cfg.Tools.Read.MaxSize = 10_485_760
+	}
+	if cfg.Tools.Write.MaxSize <= 0 {
+		cfg.Tools.Write.MaxSize = 10_485_760
+	}
 	if cfg.Memory.Search.MaxResults == 0 {
 		cfg.Memory.Search.MaxResults = 8
 	}

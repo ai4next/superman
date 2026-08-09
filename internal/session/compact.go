@@ -27,7 +27,24 @@ func (s *Service) Compact(appName, userID, sessionID string, opts CompactOptions
 	return Compact(s, appName, userID, sessionID, opts)
 }
 
+func (s *Service) CompactContext(ctx context.Context, appName, userID, sessionID string, opts CompactOptions) (CompactResult, error) {
+	return CompactContext(ctx, s, appName, userID, sessionID, opts)
+}
+
 func Compact(svc adksession.Service, appName, userID, sessionID string, opts CompactOptions) (CompactResult, error) {
+	return CompactContext(context.Background(), svc, appName, userID, sessionID, opts)
+}
+
+func CompactContext(ctx context.Context, svc adksession.Service, appName, userID, sessionID string, opts CompactOptions) (CompactResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return CompactResult{}, err
+	}
+	if svc == nil {
+		return CompactResult{}, fmt.Errorf("session service is required")
+	}
 	if opts.MaxMessages <= 0 {
 		opts.MaxMessages = 60
 	}
@@ -37,32 +54,41 @@ func Compact(svc adksession.Service, appName, userID, sessionID string, opts Com
 	if opts.MaxSummaryRunes <= 0 {
 		opts.MaxSummaryRunes = 4000
 	}
+	if opts.KeepLast > opts.MaxMessages {
+		opts.KeepLast = opts.MaxMessages
+	}
 
-	resp, err := svc.Get(context.Background(), &adksession.GetRequest{AppName: appName, UserID: userID, SessionID: sessionID})
+	resp, err := svc.Get(ctx, &adksession.GetRequest{AppName: appName, UserID: userID, SessionID: sessionID})
 	if err != nil {
 		return CompactResult{}, err
 	}
-	var messages []Message
+	var previousSummary string
+	var active []Message
 	for event := range resp.Session.Events().All() {
-		eventMessages := ProjectEvent(sessionID, event)
-		messages = append(messages, eventMessages...)
-	}
-	var nonSummary []Message
-	for _, msg := range messages {
-		if !msg.Summary {
-			nonSummary = append(nonSummary, msg)
+		if err := ctx.Err(); err != nil {
+			return CompactResult{}, err
+		}
+		for _, msg := range ProjectEvent(sessionID, event) {
+			if msg.Summary {
+				previousSummary = msg.Content
+				if len(active) > opts.KeepLast {
+					active = append([]Message(nil), active[len(active)-opts.KeepLast:]...)
+				}
+				continue
+			}
+			active = append(active, msg)
 		}
 	}
-	result := CompactResult{Scanned: len(nonSummary), Kept: min(opts.KeepLast, len(nonSummary))}
-	if len(nonSummary) <= opts.MaxMessages {
+	result := CompactResult{Scanned: len(active), Kept: min(opts.KeepLast, len(active))}
+	if len(active) <= opts.MaxMessages {
 		return result, nil
 	}
 
-	cutoff := len(nonSummary) - opts.KeepLast
+	cutoff := len(active) - opts.KeepLast
 	if cutoff <= 0 {
 		return result, nil
 	}
-	summaryText := buildDeterministicSummary(nonSummary[:cutoff], opts.MaxSummaryRunes)
+	summaryText := buildDeterministicSummary(previousSummary, active[:cutoff], opts.MaxSummaryRunes)
 	now := time.Now()
 	summaryID := "summary-" + formatStoredTime(now)
 	summary := Message{
@@ -78,7 +104,8 @@ func Compact(svc adksession.Service, appName, userID, sessionID string, opts Com
 	event.Author = "assistant"
 	event.Content = genai.NewContentFromText(summaryText, genai.RoleModel)
 	event.Actions.SkipSummarization = true
-	if err := svc.AppendEvent(context.Background(), resp.Session, event); err != nil {
+	event.Actions.StateDelta = map[string]any{sessionStateSummaryMessageID: summaryID}
+	if err := svc.AppendEvent(ctx, resp.Session, event); err != nil {
 		return CompactResult{}, err
 	}
 	result.Compacted = true
@@ -86,9 +113,20 @@ func Compact(svc adksession.Service, appName, userID, sessionID string, opts Com
 	return result, nil
 }
 
-func buildDeterministicSummary(messages []Message, maxRunes int) string {
+func buildDeterministicSummary(previous string, messages []Message, maxRunes int) string {
 	var b strings.Builder
 	b.WriteString("Deterministic session summary generated from older messages.\n\n")
+	previous = strings.Join(strings.Fields(previous), " ")
+	if previous != "" {
+		previousRunes := []rune(previous)
+		previousBudget := max(maxRunes/2, 240)
+		if len(previousRunes) > previousBudget {
+			previous = string(previousRunes[:previousBudget-3]) + "..."
+		}
+		b.WriteString("Previous summary: ")
+		b.WriteString(previous)
+		b.WriteString("\n\n")
+	}
 	for _, msg := range messages {
 		line := compactMessageLine(msg)
 		if line == "" {
@@ -105,7 +143,11 @@ func buildDeterministicSummary(messages []Message, maxRunes int) string {
 		b.WriteString(line)
 		b.WriteByte('\n')
 	}
-	return strings.TrimSpace(b.String())
+	summary := []rune(strings.TrimSpace(b.String()))
+	if maxRunes > 0 && len(summary) > maxRunes {
+		summary = summary[:maxRunes]
+	}
+	return strings.TrimSpace(string(summary))
 }
 
 func compactMessageLine(msg Message) string {

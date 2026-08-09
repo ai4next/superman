@@ -56,7 +56,7 @@ func dynamicToolsProvider(build BuildConfig) func(adkagent.CallbackContext, *mod
 			}
 		}
 
-		return processDynamicToolsets(ctx, req, buildToolsets(context.Background(), build.Config))
+		return processDynamicToolsets(ctx, req, buildToolsets(ctx, build.Config))
 	}
 }
 

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -11,7 +12,15 @@ import (
 
 // Execute runs the root command.
 func Execute() error {
-	return rootCmd.Execute()
+	return ExecuteContext(context.Background())
+}
+
+// ExecuteContext runs the CLI and propagates cancellation to long-lived agent work.
+func ExecuteContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return rootCmd.ExecuteContext(ctx)
 }
 
 // ensureDirs creates all runtime directories required by the agent.

@@ -167,3 +167,29 @@ func TestCompactSessionContextAutoCompactsOversizedWindow(t *testing.T) {
 		t.Fatalf("len(compacted.Messages) = %d, want 3", len(compacted.Messages))
 	}
 }
+
+func TestCompactedMessageWindowKeepsOnlyBoundaryTailAndNewMessages(t *testing.T) {
+	var messages []supermansession.Message
+	for i := range 30 {
+		messages = append(messages, supermansession.Message{
+			Role:    supermansession.MessageUser,
+			Content: fmt.Sprintf("old-%02d", i),
+		})
+	}
+	messages = append(messages,
+		supermansession.Message{Role: supermansession.MessageAssistant, Content: "compacted history", Summary: true},
+		supermansession.Message{Role: supermansession.MessageAssistant, Content: "new answer"},
+		supermansession.Message{Role: supermansession.MessageUser, Content: "current request"},
+	)
+
+	summary, active := compactedMessageWindow(messages)
+	if summary != "compacted history" {
+		t.Fatalf("summary = %q", summary)
+	}
+	if len(active) != contextSummaryCarryMessages+2 {
+		t.Fatalf("active message count = %d, want %d", len(active), contextSummaryCarryMessages+2)
+	}
+	if active[0].Content != "old-10" || active[len(active)-1].Content != "current request" {
+		t.Fatalf("active boundary = first:%q last:%q", active[0].Content, active[len(active)-1].Content)
+	}
+}

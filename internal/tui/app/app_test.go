@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,6 +57,26 @@ func TestApplyRuntimeEventCompletesRun(t *testing.T) {
 	}
 }
 
+func TestStartRuntimeInheritsApplicationContext(t *testing.T) {
+	parent, cancel := context.WithCancel(t.Context())
+	m := &Model{runtimeContext: parent}
+	var runCtx context.Context
+	m.startRuntime(func(ctx context.Context, _ bus.Broker) tea.Cmd {
+		runCtx = ctx
+		return nil
+	})
+	if runCtx == nil {
+		t.Fatal("runtime context was not provided")
+	}
+
+	cancel()
+	select {
+	case <-runCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("runtime context was not canceled with application context")
+	}
+}
+
 func TestApplyRuntimeEventKeepsInterleavedOutputOrder(t *testing.T) {
 	m := &Model{
 		running:    true,
@@ -106,6 +127,28 @@ func TestApplyRuntimeEventCancelsRun(t *testing.T) {
 	}
 	if len(m.messages) == 0 || !strings.Contains(m.messages[len(m.messages)-1].Content, "canceled") {
 		t.Fatalf("messages = %+v", m.messages)
+	}
+}
+
+func TestCancelRunUpdatesImmediatelyAndCancelsRuntime(t *testing.T) {
+	canceled := false
+	m := &Model{
+		running:       true,
+		runtimeCancel: func() { canceled = true },
+		toolStarts:    make(map[string]time.Time),
+	}
+
+	m.cancelRun()
+	if m.running || !canceled {
+		t.Fatalf("running = %v, canceled = %v", m.running, canceled)
+	}
+	if len(m.messages) != 1 || !strings.Contains(m.messages[0].Content, "canceled") {
+		t.Fatalf("messages = %#v", m.messages)
+	}
+	// A late cancellation emitted by the runner must not duplicate the notice.
+	m.applyRuntimeEvent(bus.Event{Type: bus.EventRunCanceled})
+	if len(m.messages) != 1 {
+		t.Fatalf("duplicate cancellation messages = %#v", m.messages)
 	}
 }
 

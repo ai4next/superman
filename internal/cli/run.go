@@ -34,7 +34,7 @@ var runCmd = &cobra.Command{
 	Short: "Run a single prompt and print the response",
 	Long:  "Execute a one-shot agent invocation with the given prompt.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := context.Background()
+		ctx := cmd.Context()
 		cfg := global.Config()
 
 		prompt, err := runPromptInput(args, os.Stdin)

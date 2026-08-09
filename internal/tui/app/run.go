@@ -17,6 +17,12 @@ import (
 )
 
 func Run(ctx context.Context, a agent.Agent, cfg *config.Config, pluginCfg runner.PluginConfig, sessSvc session.Service) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	appCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	logPath := filepath.Join(cfg.Workspace, "tui.log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err == nil {
@@ -27,7 +33,8 @@ func Run(ctx context.Context, a agent.Agent, cfg *config.Config, pluginCfg runne
 	}
 
 	m := New(a, cfg, pluginCfg, sessSvc)
-	p := tea.NewProgram(m, tea.WithContext(ctx))
+	m.runtimeContext = appCtx
+	p := tea.NewProgram(m, tea.WithContext(appCtx))
 	_, err = p.Run()
 	return err
 }

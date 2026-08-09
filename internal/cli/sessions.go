@@ -213,7 +213,7 @@ var sessionsCompactCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return writeSessionCompact(os.Stdout, svc, cfg, sessionsUserID, sessionID, compactOptions(cfg), sessionsJSON)
+		return writeSessionCompactContext(cmd.Context(), os.Stdout, svc, cfg, sessionsUserID, sessionID, compactOptions(cfg), sessionsJSON)
 	},
 }
 
@@ -936,7 +936,11 @@ func compactOptions(cfg *config.Config) supermansession.CompactOptions {
 }
 
 func writeSessionCompact(w io.Writer, svc adksession.Service, cfg *config.Config, userID, sessionID string, opts supermansession.CompactOptions, asJSON bool) error {
-	result, err := supermansession.Compact(svc, cfg.Session.AppName, userID, sessionID, opts)
+	return writeSessionCompactContext(context.Background(), w, svc, cfg, userID, sessionID, opts, asJSON)
+}
+
+func writeSessionCompactContext(ctx context.Context, w io.Writer, svc adksession.Service, cfg *config.Config, userID, sessionID string, opts supermansession.CompactOptions, asJSON bool) error {
+	result, err := supermansession.CompactContext(ctx, svc, cfg.Session.AppName, userID, sessionID, opts)
 	if err != nil {
 		return err
 	}

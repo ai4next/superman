@@ -2,6 +2,8 @@ package bus
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -123,6 +125,57 @@ func TestReadAuditLogFiltersAndLimits(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Type != EventRunFailed || got[0].Error != "boom" {
 		t.Fatalf("events = %#v", got)
+	}
+}
+
+func TestAuditLogSupportsLargeEvents(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit", "events.jsonl")
+	logger := NewAuditLogger(path)
+	want := strings.Repeat("x", 256*1024)
+	if err := logger.Write(Event{Type: EventToolCallFinished, Result: want}); err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := ReadAuditLog(path, AuditFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Result != want {
+		t.Fatalf("large audit event length = %d, want %d", len(events[0].Result), len(want))
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("audit permissions = %o, want 600", got)
+	}
+}
+
+func TestDecodeAuditEventsKeepsLastLimitedMatchesInOrder(t *testing.T) {
+	var input strings.Builder
+	for i := range 250 {
+		event := Event{Type: EventRunStarted, RunID: fmt.Sprintf("run-%03d", i)}
+		data, err := json.Marshal(event)
+		if err != nil {
+			t.Fatal(err)
+		}
+		input.Write(data)
+		input.WriteByte('\n')
+	}
+
+	events, err := DecodeAuditEvents(strings.NewReader(input.String()), AuditFilter{Limit: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"run-247", "run-248", "run-249"}
+	if len(events) != len(want) {
+		t.Fatalf("event count = %d, want %d", len(events), len(want))
+	}
+	for i := range want {
+		if events[i].RunID != want[i] {
+			t.Fatalf("events[%d].RunID = %q, want %q", i, events[i].RunID, want[i])
+		}
 	}
 }
 

@@ -23,6 +23,7 @@ type IdleWatcher struct {
 	mu          sync.Mutex
 	idleTimeout time.Duration
 	stopCh      chan struct{}
+	stopOnce    sync.Once
 }
 
 // NewIdleWatcher creates a new IdleWatcher with the given agent.
@@ -59,6 +60,8 @@ func (w *IdleWatcher) Start(ctx context.Context) {
 
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case <-w.stopCh:
 			return
 		case <-ticker.C:
@@ -77,7 +80,7 @@ func (w *IdleWatcher) Start(ctx context.Context) {
 
 // Stop signals the idle watcher to stop.
 func (w *IdleWatcher) Stop() {
-	close(w.stopCh)
+	w.stopOnce.Do(func() { close(w.stopCh) })
 }
 
 func (w *IdleWatcher) execute(ctx context.Context) {

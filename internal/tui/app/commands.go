@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -129,7 +130,11 @@ func (m *Model) processCommand(input string) (bool, tea.Cmd) {
 			m.chatCacheDirty = true
 			return true, nil
 		}
-		compacted, count, err := compactor.Compact(m.cfg.Session.AppName, "tui-user", m.sessionID)
+		ctx := m.runtimeContext
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		compacted, count, err := compactor.Compact(ctx, m.cfg.Session.AppName, "tui-user", m.sessionID)
 		if err != nil {
 			if strings.Contains(err.Error(), "not found") {
 				m.messages = append(m.messages, components.Message{Role: "system", Content: "Session is already within the context window"})

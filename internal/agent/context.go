@@ -22,6 +22,7 @@ const (
 	contextAutoCompactLimitRunes  = 50000
 	contextAutoSummaryMaxRunes    = 4000
 	contextMessagePreviewMaxRunes = 600
+	contextSummaryCarryMessages   = 20
 )
 
 func instructionProvider(build BuildConfig) func(adkagent.CallbackContext, *model.LLMRequest) (string, error) {
@@ -140,13 +141,7 @@ func loadSessionContext(svc adksession.Service, appName, userID, sessionID strin
 		return sessionContext{}, err
 	}
 	window := sessionContext{MaxMessages: maxMessages}
-	for _, msg := range messages {
-		if msg.Summary {
-			window.Summary = msg.Content
-			continue
-		}
-		window.Messages = append(window.Messages, msg)
-	}
+	window.Summary, window.Messages = compactedMessageWindow(messages)
 
 	files, err := supermansession.SessionFiles(svc, appName, userID, sessionID)
 	if err != nil {
@@ -166,6 +161,22 @@ func loadSessionContext(svc adksession.Service, appName, userID, sessionID strin
 	}
 	window.References = refs
 	return window, nil
+}
+
+func compactedMessageWindow(messages []supermansession.Message) (string, []supermansession.Message) {
+	var summary string
+	var active []supermansession.Message
+	for _, msg := range messages {
+		if msg.Summary {
+			summary = msg.Content
+			if len(active) > contextSummaryCarryMessages {
+				active = append([]supermansession.Message(nil), active[len(active)-contextSummaryCarryMessages:]...)
+			}
+			continue
+		}
+		active = append(active, msg)
+	}
+	return summary, active
 }
 
 func compactSessionContext(window sessionContext) sessionContext {

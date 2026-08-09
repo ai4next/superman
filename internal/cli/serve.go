@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"log"
 
@@ -24,7 +23,7 @@ import (
 
 // RunServe launches the TUI chat interface. Shared by the root command and serve subcommand.
 func RunServe(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
+	ctx := cmd.Context()
 	cfg := global.Config()
 
 	// Model

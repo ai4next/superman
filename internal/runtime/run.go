@@ -24,7 +24,7 @@ type RunRequest struct {
 }
 
 type Compactor interface {
-	Compact(appName, userID, sessionID string) (bool, int, error)
+	Compact(ctx context.Context, appName, userID, sessionID string) (bool, int, error)
 }
 
 // StreamRun converts an ADK runner iterator into Superman runtime events.
@@ -74,7 +74,7 @@ func StreamRun(ctx context.Context, runner *adkrunner.Runner, req RunRequest, br
 		}
 
 		if req.Compact != nil {
-			compacted, count, err := req.Compact.Compact(req.AppName, req.UserID, req.SessionID)
+			compacted, count, err := req.Compact.Compact(ctx, req.AppName, req.UserID, req.SessionID)
 			if err != nil {
 				failed := bus.RunFailed(req.SessionID, started.RunID, err)
 				publish(ctx, broker, failed)

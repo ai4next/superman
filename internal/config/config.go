@@ -45,8 +45,9 @@ type ToolsConfig struct {
 
 // ExecConfig allows executing shell commands.
 type ExecConfig struct {
-	Enabled bool     `mapstructure:"enabled"`
-	Timeout Duration `mapstructure:"timeout"`
+	Enabled       bool     `mapstructure:"enabled"`
+	Timeout       Duration `mapstructure:"timeout"`
+	MaxOutputSize int64    `mapstructure:"max_output_size"`
 }
 
 // ReadConfig allows reading local files.

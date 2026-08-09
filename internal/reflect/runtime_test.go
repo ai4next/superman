@@ -157,6 +157,39 @@ func TestIdleWatcherAndSchedulerUseExecutor(t *testing.T) {
 	}
 }
 
+func TestReflectLoopsStopOnContextCancellation(t *testing.T) {
+	cfg := reflectTestConfig(t.TempDir())
+	global.SetConfig(cfg)
+	t.Cleanup(func() { global.SetConfig(nil) })
+
+	ctx, cancel := context.WithCancel(t.Context())
+	watcher := NewIdleWatcherWithPlugins(nil, nil, runner.PluginConfig{})
+	scheduler := NewSchedulerWithPlugins(nil, nil, runner.PluginConfig{})
+	done := make(chan struct{}, 2)
+	go func() {
+		watcher.Start(ctx)
+		done <- struct{}{}
+	}()
+	go func() {
+		scheduler.Start(ctx)
+		done <- struct{}{}
+	}()
+	cancel()
+
+	for range 2 {
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("reflection loop did not stop after context cancellation")
+		}
+	}
+	// Stop remains safe for cleanup paths racing with context cancellation.
+	watcher.Stop()
+	watcher.Stop()
+	scheduler.Stop()
+	scheduler.Stop()
+}
+
 func reflectTestConfig(workspace string) *config.Config {
 	return &config.Config{
 		Workspace: workspace,

@@ -41,6 +41,7 @@ type Model struct {
 	runtimeBroker  bus.Broker
 	runtimeCh      <-chan bus.Event
 	runtimeCancel  context.CancelFunc
+	runtimeContext context.Context
 	auditLogger    *bus.AuditLogger
 	pulseOn        bool
 	currentTool    string

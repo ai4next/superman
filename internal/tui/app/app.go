@@ -31,6 +31,7 @@ func New(a agent.Agent, cfg *config.Config, pluginCfg runner.PluginConfig, sessS
 		sessionTitle:   "Session 1",
 		modelName:      fmt.Sprintf("%s/%s", cfg.Model.Provider, cfg.Model.Name),
 		runtimeBroker:  bus.NewMemoryBroker(),
+		runtimeContext: context.Background(),
 		auditLogger:    bus.NewAuditLogger(global.BusEventsPath()),
 		toolStarts:     make(map[string]time.Time),
 		chatCacheDirty: true,

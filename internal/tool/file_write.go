@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/functiontool"
@@ -31,18 +32,26 @@ func newWriteTool(deps Dependencies) tool.Tool {
 }
 
 func writeFile(tctx tool.Context, deps Dependencies, input fileWriteInput) (fileWriteOutput, error) {
+	if tctx != nil {
+		if err := tctx.Err(); err != nil {
+			return fileWriteOutput{}, err
+		}
+	}
+	mode := strings.ToLower(strings.TrimSpace(input.Mode))
+	if mode == "" {
+		mode = "overwrite"
+	}
+	if mode != "overwrite" && mode != "append" {
+		return fileWriteOutput{}, fmt.Errorf("unsupported write mode %q: use overwrite or append", input.Mode)
+	}
+
 	abs, err := workspacePath(deps.Config, input.Path, true)
 	if err != nil {
 		return fileWriteOutput{}, fmt.Errorf("invalid path: %w", err)
 	}
 
-	if len(input.Content) > int(deps.Config.Tools.Write.MaxSize) {
+	if int64(len(input.Content)) > deps.Config.Tools.Write.MaxSize {
 		return fileWriteOutput{}, fmt.Errorf("content too large: %d bytes (max %d)", len(input.Content), deps.Config.Tools.Write.MaxSize)
-	}
-
-	mode := input.Mode
-	if mode == "" {
-		mode = "overwrite"
 	}
 
 	beforeBytes, readErr := os.ReadFile(abs)
@@ -51,6 +60,14 @@ func writeFile(tctx tool.Context, deps Dependencies, input fileWriteInput) (file
 		return fileWriteOutput{}, fmt.Errorf("read existing file failed: %w", readErr)
 	}
 	before := string(beforeBytes)
+	if mode == "append" && int64(len(beforeBytes))+int64(len(input.Content)) > deps.Config.Tools.Write.MaxSize {
+		return fileWriteOutput{}, fmt.Errorf("appended file too large: %d bytes (max %d)", len(beforeBytes)+len(input.Content), deps.Config.Tools.Write.MaxSize)
+	}
+	if tctx != nil {
+		if err := tctx.Err(); err != nil {
+			return fileWriteOutput{}, err
+		}
+	}
 
 	dir := filepath.Dir(abs)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -73,6 +90,9 @@ func writeFile(tctx tool.Context, deps Dependencies, input fileWriteInput) (file
 	n, err := f.WriteString(input.Content)
 	if err != nil {
 		return fileWriteOutput{}, fmt.Errorf("write failed: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fileWriteOutput{}, fmt.Errorf("close file failed: %w", err)
 	}
 	after := input.Content
 	if mode == "append" && !beforeMissing {

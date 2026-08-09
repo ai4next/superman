@@ -35,6 +35,11 @@ func newReadTool(deps Dependencies) tool.Tool {
 }
 
 func readFile(tctx tool.Context, deps Dependencies, input fileReadInput) (fileReadOutput, error) {
+	if tctx != nil {
+		if err := tctx.Err(); err != nil {
+			return fileReadOutput{}, err
+		}
+	}
 	abs, err := workspacePath(deps.Config, input.Path, false)
 	if err != nil {
 		return fileReadOutput{}, fmt.Errorf("invalid path: %w", err)
@@ -44,6 +49,9 @@ func readFile(tctx tool.Context, deps Dependencies, input fileReadInput) (fileRe
 	if err != nil {
 		return fileReadOutput{}, fmt.Errorf("file not found: %w", err)
 	}
+	if !info.Mode().IsRegular() {
+		return fileReadOutput{}, fmt.Errorf("path is not a regular file")
+	}
 	if info.Size() > deps.Config.Tools.Read.MaxSize {
 		return fileReadOutput{}, fmt.Errorf("file too large: %d bytes (max %d)", info.Size(), deps.Config.Tools.Read.MaxSize)
 	}
@@ -51,6 +59,11 @@ func readFile(tctx tool.Context, deps Dependencies, input fileReadInput) (fileRe
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		return fileReadOutput{}, fmt.Errorf("read failed: %w", err)
+	}
+	if tctx != nil {
+		if err := tctx.Err(); err != nil {
+			return fileReadOutput{}, err
+		}
 	}
 
 	lines := strings.Split(string(data), "\n")

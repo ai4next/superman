@@ -53,7 +53,7 @@ func newDelegateTool(deps Dependencies) tool.Tool {
 	}
 
 	handler := func(tctx tool.Context, input delegateInput) (delegateOutput, error) {
-		return runDelegateTool(context.Background(), deps, input)
+		return runDelegateTool(tctx, deps, input)
 	}
 	t, _ := functiontool.New(functiontool.Config{
 		Name:        "delegate",
@@ -63,7 +63,21 @@ func newDelegateTool(deps Dependencies) tool.Tool {
 }
 
 func runDelegateTool(ctx context.Context, deps Dependencies, input delegateInput) (delegateOutput, error) {
+	input.ExpertName = strings.TrimSpace(input.ExpertName)
+	input.Task = strings.TrimSpace(input.Task)
+	if input.ExpertName == "" {
+		return delegateOutput{}, fmt.Errorf("expert_name is required")
+	}
+	if input.Task == "" {
+		return delegateOutput{}, fmt.Errorf("task is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return delegateOutput{}, err
+	}
 	mode := delegateMode(input)
+	if mode != "sync" && mode != "async" {
+		return delegateOutput{}, fmt.Errorf("unsupported delegate mode %q: use sync or async", input.Mode)
+	}
 	if mode == "async" {
 		scheduler := deps.DelegateScheduler
 		if scheduler == nil {

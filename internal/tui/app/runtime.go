@@ -126,6 +126,9 @@ func (m *Model) applyRuntimeEvent(event bus.Event) {
 		m.refreshSessionFiles()
 		m.finishRun()
 	case bus.EventRunCanceled:
+		if !m.running {
+			return
+		}
 		m.messages = append(m.messages, components.Message{Role: "system", Content: "Run canceled"})
 		m.chatCacheDirty = true
 		m.finishRun()
@@ -150,13 +153,11 @@ func (m *Model) cancelRun() (tea.Model, tea.Cmd) {
 	if !m.running {
 		return m, nil
 	}
-	if m.runtimeCancel != nil {
-		m.runtimeCancel()
-		m.runtimeCancel = nil
+	event := bus.RunCanceled(m.sessionID, "")
+	if m.auditLogger != nil {
+		_ = m.auditLogger.Write(event)
 	}
-	if m.runtimeBroker != nil {
-		_ = m.runtimeBroker.Publish(context.Background(), bus.RunCanceled(m.sessionID, ""))
-	}
+	m.applyRuntimeEvent(event)
 	return m, nil
 }
 func (m *Model) resolvePermissionMessage(toolID, status, content string) {
@@ -234,7 +235,11 @@ func (m *Model) ensureRunner() error {
 }
 func (m *Model) startRuntime(command func(context.Context, bus.Broker) tea.Cmd) (tea.Model, tea.Cmd) {
 	m.runtimeBroker = bus.NewMemoryBroker()
-	runCtx, cancel := context.WithCancel(context.Background())
+	parent := m.runtimeContext
+	if parent == nil {
+		parent = context.Background()
+	}
+	runCtx, cancel := context.WithCancel(parent)
 	m.runtimeCancel = cancel
 	if m.auditLogger != nil {
 		_ = m.auditLogger.Subscribe(runCtx, m.runtimeBroker, bus.EventFilter{})

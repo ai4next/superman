@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"google.golang.org/adk/agent"
@@ -30,6 +31,7 @@ type Scheduler struct {
 	sessions  adksession.Service
 	pluginCfg runner.PluginConfig
 	stopCh    chan struct{}
+	stopOnce  sync.Once
 }
 
 // NewScheduler creates a new Scheduler with the given agent.
@@ -58,6 +60,8 @@ func (s *Scheduler) Start(ctx context.Context) {
 
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case <-s.stopCh:
 			return
 		case <-ticker.C:
@@ -74,7 +78,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 
 // Stop signals the scheduler to stop.
 func (s *Scheduler) Stop() {
-	close(s.stopCh)
+	s.stopOnce.Do(func() { close(s.stopCh) })
 }
 
 func (s *Scheduler) loadTasks(dir string) []ScheduleTask {
